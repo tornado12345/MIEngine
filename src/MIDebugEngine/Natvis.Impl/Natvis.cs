@@ -48,7 +48,7 @@ namespace Microsoft.MIDebugEngine.Natvis
         public ThreadContext ThreadContext { get { return Parent.ThreadContext; } }
         public virtual bool IsVisualized { get { return Parent.IsVisualized; } }
         public virtual enum_DEBUGPROP_INFO_FLAGS PropertyInfoFlags { get; set; }
-        public virtual bool IsReadOnly { get { return Parent.IsReadOnly; } }
+        public virtual bool IsReadOnly() => Parent.IsReadOnly();
 
         public VariableInformation FindChildByName(string name) => Parent.FindChildByName(name);
         public string EvalDependentExpression(string expr) => Parent.EvalDependentExpression(expr);
@@ -64,6 +64,7 @@ namespace Microsoft.MIDebugEngine.Natvis
         public void Dispose()
         {
         }
+        public bool IsPreformatted { get { return Parent.IsPreformatted; } set { } }
     }
 
     internal class VisualizerWrapper : SimpleWrapper
@@ -339,7 +340,8 @@ namespace Microsoft.MIDebugEngine.Natvis
                 {
                     if (!(variable is VisualizerWrapper) && //no displaystring for dummy vars ([Raw View])
                         (ShowDisplayStrings == DisplayStringsState.On
-                        || (ShowDisplayStrings == DisplayStringsState.ForVisualizedItems && variable.IsVisualized)))
+                        || (ShowDisplayStrings == DisplayStringsState.ForVisualizedItems && variable.IsVisualized)) &&
+                        !variable.IsPreformatted)
                     {
                         VisualizerInfo visualizer = FindType(variable);
                         if (visualizer == null)
@@ -379,6 +381,10 @@ namespace Microsoft.MIDebugEngine.Natvis
 
         private IVariableInformation GetVisualizationWrapper(IVariableInformation variable)
         {
+            if (variable.IsPreformatted)
+            {
+                return null;
+            }
             VisualizerInfo visualizer = FindType(variable);
             if (visualizer == null || variable is VisualizerWrapper)    // don't stack wrappers
             {
@@ -846,7 +852,11 @@ namespace Microsoft.MIDebugEngine.Natvis
             if (!String.IsNullOrWhiteSpace(condition))
             {
                 string exprValue = GetExpressionValue(condition, variable, scopedNames);
-                res = !String.IsNullOrEmpty(exprValue) && (exprValue == "true");
+
+                bool exprBool = false;
+                int exprInt = 0;
+                res = !String.IsNullOrEmpty(exprValue) &&
+                    ((bool.TryParse(exprValue, out exprBool) && exprBool) || (int.TryParse(exprValue, out exprInt) && exprInt > 0));
             }
             return res;
         }

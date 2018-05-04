@@ -204,6 +204,12 @@ namespace Microsoft.DebugEngineHost
 /// </summary>
 public sealed class HostLogger
     {
+        /// <summary>
+        /// Callback for programmatic display of log messages
+        /// </summary>
+        /// <param name="outputMessage"></param>
+        public delegate void OutputCallback(string outputMessage);
+
         private HostLogger()
         {
             throw new NotImplementedException();
@@ -222,6 +228,25 @@ public sealed class HostLogger
         /// If the log is implemented as a file, this flushes the file.
         /// </summary>
         public void Flush()
+        {
+            throw new NotImplementedException();
+        }
+
+        /// <summary>
+        /// If the log is implemented as a file, this closes the file.
+        /// </summary>
+        public void Close()
+        {
+            throw new NotImplementedException();
+        }
+
+        /// <summary>
+        /// Get a logger after the user has explicitly configured a log file/callback
+        /// </summary>
+        /// <param name="logFileName"></param>
+        /// <param name="callback"></param>
+        /// <returns>The host logger object</returns>
+        public static HostLogger GetLoggerFromCmd(string logFileName, HostLogger.OutputCallback callback)
         {
             throw new NotImplementedException();
         }
@@ -333,6 +358,16 @@ public sealed class HostLogger
         {
             throw new NotImplementedException();
         }
+
+        /// <summary>
+        /// In VS, calls Marshal.Release on IUnknown to derefcount when we are done with object.
+        /// </summary>
+        /// <param name="unknownId">In VS, the IUnknown</param>
+        /// <returns>In VS, the result from calling Marshal.Release</returns>
+        public static int Release(IntPtr unknownId)
+        {
+            throw new NotImplementedException();
+        }
     }
 
     /// <summary>
@@ -355,6 +390,14 @@ public sealed class HostLogger
         /// <param name="loader">Natvis loader method to invoke</param>
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Naming", "CA1704:IdentifiersShouldBeSpelledCorrectly", MessageId = "Natvis")]
         public static void FindNatvisInSolution(NatvisLoader loader)
+        {
+            throw new NotImplementedException();
+        }
+
+        /// <summary>
+        /// Return the solution's root directory, null if no solution
+        /// </summary>
+        public static string FindSolutionRoot()
         {
             throw new NotImplementedException();
         }

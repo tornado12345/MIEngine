@@ -20,7 +20,7 @@ namespace MICore {
     // class via a tool like ResGen or Visual Studio.
     // To add or remove a member, edit your .ResX file then rerun ResGen
     // with the /str option, or rebuild your VS project.
-    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "4.0.0.0")]
+    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "15.0.0.0")]
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
     public class MICoreResources {
@@ -80,6 +80,15 @@ namespace MICore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Command aborted. See the output window for additional details..
+        /// </summary>
+        public static string Error_CommandAborted {
+            get {
+                return ResourceManager.GetString("Error_CommandAborted", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Internal error in MIEngine. Exception of type &apos;{0}&apos; was thrown.
         ///
         ///{1}.
@@ -87,6 +96,15 @@ namespace MICore {
         public static string Error_CorruptingException {
             get {
                 return ResourceManager.GetString("Error_CorruptingException", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to The debugger is no longer debugging the specified process..
+        /// </summary>
+        public static string Error_DebuggerClosed {
+            get {
+                return ResourceManager.GetString("Error_DebuggerClosed", resourceCulture);
             }
         }
         
@@ -178,6 +196,15 @@ namespace MICore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Unknown launchCompleteCommand value &apos;{0}&apos;. Expected values are &apos;exec-run&apos;, &apos;exec-continue&apos; and &apos;None&apos;..
+        /// </summary>
+        public static string Error_InvalidLaunchCompleteCommandValue {
+            get {
+                return ResourceManager.GetString("Error_InvalidLaunchCompleteCommandValue", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Launch options string provided by the project system is invalid. {0}.
         /// </summary>
         public static string Error_InvalidLaunchOptions {
@@ -187,7 +214,7 @@ namespace MICore {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Invalid path to core dump file &apos;{0}&apos;. File must be a valid file name that exists on the computer..
+        ///   Looks up a localized string similar to Invalid core dump file path: &apos;{0}&apos;. File must be a valid file name that exists on the computer..
         /// </summary>
         public static string Error_InvalidLocalCoreDumpPath {
             get {
@@ -196,7 +223,7 @@ namespace MICore {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Invalid path to directory path &apos;{0}&apos;. Directory must be a valid directory name that exists..
+        ///   Looks up a localized string similar to Invalid directory path: &apos;{0}&apos;. Directory must be a valid directory name that exists..
         /// </summary>
         public static string Error_InvalidLocalDirectoryPath {
             get {
@@ -205,7 +232,7 @@ namespace MICore {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Invalid path to executable file path &apos;{0}&apos;. File must be a valid file name that exists..
+        ///   Looks up a localized string similar to Invalid executable file path: &apos;{0}&apos;. File must be a valid file name that exists..
         /// </summary>
         public static string Error_InvalidLocalExePath {
             get {
@@ -250,7 +277,7 @@ namespace MICore {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to {0} exited unexpectedly. Debugging will now abort..
+        ///   Looks up a localized string similar to {0} exited unexpectedly..
         /// </summary>
         public static string Error_MIDebuggerExited_UnknownCode {
             get {
@@ -259,7 +286,7 @@ namespace MICore {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to {0} exited unexpectedly with exit code {1}. Debugging will now abort..
+        ///   Looks up a localized string similar to {0} exited unexpectedly with exit code {1}..
         /// </summary>
         public static string Error_MIDebuggerExited_WithCode {
             get {
@@ -304,6 +331,33 @@ namespace MICore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to PipeProgram &apos;{0}&apos; could not be found..
+        /// </summary>
+        public static string Error_PipeProgramNotFound {
+            get {
+                return ResourceManager.GetString("Error_PipeProgramNotFound", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to There was an error starting the pipe program &apos;{0}&apos;. {1}.
+        /// </summary>
+        public static string Error_PipeProgramStart {
+            get {
+                return ResourceManager.GetString("Error_PipeProgramStart", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Error while processing {0}: {1}.
+        /// </summary>
+        public static string Error_ProcessingFile {
+            get {
+                return ResourceManager.GetString("Error_ProcessingFile", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Commands are only accepted when the process is stopped..
         /// </summary>
         public static string Error_ProcessMustBeStopped {
@@ -331,11 +385,29 @@ namespace MICore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to The format of source file map entry &apos;{0}&apos; is incorrect.  .
+        /// </summary>
+        public static string Error_SourceFileMapFormat {
+            get {
+                return ResourceManager.GetString("Error_SourceFileMapFormat", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to This string is null or empty..
         /// </summary>
         public static string Error_StringIsNullOrEmpty {
             get {
                 return ResourceManager.GetString("Error_StringIsNullOrEmpty", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to The target process has exited..
+        /// </summary>
+        public static string Error_TargetProcessExited {
+            get {
+                return ResourceManager.GetString("Error_TargetProcessExited", resourceCulture);
             }
         }
         
@@ -367,6 +439,24 @@ namespace MICore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Unexpected ResultClass from MI Debugger. Expected &apos;{0}&apos; but received &apos;{1}&apos;..
+        /// </summary>
+        public static string Error_UnexpectedResultClass {
+            get {
+                return ResourceManager.GetString("Error_UnexpectedResultClass", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Unrecognized json customLauncher element &apos;{0}&apos;..
+        /// </summary>
+        public static string Error_UnknownCustomLauncher {
+            get {
+                return ResourceManager.GetString("Error_UnknownCustomLauncher", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Internal error: unable to serialize launch options..
         /// </summary>
         public static string Error_UnknownLaunchOptions {
@@ -394,6 +484,17 @@ namespace MICore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to GDB version {0} is not supported on Windows. Consider upgrading.
+        ///
+        ///{1}.
+        /// </summary>
+        public static string Error_UnsupportedWindowsGdb {
+            get {
+                return ResourceManager.GetString("Error_UnsupportedWindowsGdb", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Installing debugger on the remote machine..
         /// </summary>
         public static string Info_InstallingDebuggerOnRemote {
@@ -417,6 +518,15 @@ namespace MICore {
         public static string Info_StartingUnixCommand {
             get {
                 return ResourceManager.GetString("Info_StartingUnixCommand", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Debugger was unable to continue the process..
+        /// </summary>
+        public static string Info_UnableToContinue {
+            get {
+                return ResourceManager.GetString("Info_UnableToContinue", resourceCulture);
             }
         }
         

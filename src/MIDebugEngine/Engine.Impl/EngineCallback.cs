@@ -17,6 +17,7 @@ namespace Microsoft.MIDebugEngine
     {
         private readonly IDebugEventCallback2 _eventCallback;
         private readonly AD7Engine _engine;
+        private int _sentProgramDestroy;
 
         public EngineCallback(AD7Engine engine, IDebugEventCallback2 ad7Callback)
         {
@@ -84,6 +85,12 @@ namespace Microsoft.MIDebugEngine
             Send(eventObject, AD7ModuleLoadEvent.IID, null);
         }
 
+        public void OnSymbolsLoaded(DebuggedModule module)
+        {
+            var eventObject = new AD7SymbolLoadEvent(module.Client as AD7Module);
+            Send(eventObject, AD7SymbolLoadEvent.IID, null);
+        }
+
         public void OnModuleUnload(DebuggedModule debuggedModule)
         {
             Debug.Assert(_engine.DebuggedProcess.WorkerThread.IsPollThread());
@@ -98,8 +105,6 @@ namespace Microsoft.MIDebugEngine
 
         public void OnOutputString(string outputString)
         {
-            Debug.Assert(_engine.DebuggedProcess.WorkerThread.IsPollThread());
-
             AD7OutputDebugStringEvent eventObject = new AD7OutputDebugStringEvent(outputString);
 
             Send(eventObject, AD7OutputDebugStringEvent.IID, null);
@@ -129,15 +134,18 @@ namespace Microsoft.MIDebugEngine
 
         public void OnProcessExit(uint exitCode)
         {
-            AD7ProgramDestroyEvent eventObject = new AD7ProgramDestroyEvent(exitCode);
+            if (Interlocked.Exchange(ref _sentProgramDestroy, 1) == 0)
+            {
+                AD7ProgramDestroyEvent eventObject = new AD7ProgramDestroyEvent(exitCode);
 
-            try
-            {
-                Send(eventObject, AD7ProgramDestroyEvent.IID, null);
-            }
-            catch (InvalidOperationException)
-            {
-                // If debugging has already stopped, this can throw
+                try
+                {
+                    Send(eventObject, AD7ProgramDestroyEvent.IID, null);
+                }
+                catch (InvalidOperationException)
+                {
+                    // If debugging has already stopped, this can throw
+                }
             }
         }
 
@@ -242,19 +250,6 @@ namespace Microsoft.MIDebugEngine
         {
             AD7ProgramDestroyEvent eventObject = new AD7ProgramDestroyEvent(exitCode);
             Send(eventObject, AD7ProgramDestroyEvent.IID, null);
-        }
-
-        // Engines notify the debugger about the results of a symbol serach by sending an instance
-        // of IDebugSymbolSearchEvent2
-        public void OnSymbolSearch(DebuggedModule module, string status, uint dwStatusFlags)
-        {
-            enum_MODULE_INFO_FLAGS statusFlags = (enum_MODULE_INFO_FLAGS)dwStatusFlags;
-
-            string statusString = ((statusFlags & enum_MODULE_INFO_FLAGS.MIF_SYMBOLS_LOADED) != 0 ? "Symbols Loaded - " : "No symbols loaded") + status;
-
-            AD7Module ad7Module = new AD7Module(module, _engine.DebuggedProcess);
-            AD7SymbolSearchEvent eventObject = new AD7SymbolSearchEvent(ad7Module, statusString, statusFlags);
-            Send(eventObject, AD7SymbolSearchEvent.IID, null);
         }
 
         // Engines notify the debugger that a breakpoint has bound through the breakpoint bound event.

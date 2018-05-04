@@ -14,7 +14,7 @@ using System.Threading.Tasks;
 
 namespace Microsoft.SSHDebugPS
 {
-    internal class AD7Port : IDebugPort2, IDebugUnixShellPort, IConnectionPointContainer, IConnectionPoint
+    internal class AD7Port : IDebugPort2, IDebugUnixShellPort, IDebugPortCleanup, IDebugGdbServerAttach, IConnectionPointContainer, IConnectionPoint
     {
         private readonly object _lock = new object();
         private readonly AD7PortSupplier _portSupplier;
@@ -129,9 +129,9 @@ namespace Microsoft.SSHDebugPS
             commandOutput = output;
         }
 
-        void IDebugUnixShellPort.BeginExecuteAsyncCommand(string commandText, IDebugUnixShellCommandCallback callback, out IDebugUnixShellAsyncCommand asyncCommand)
+        void IDebugUnixShellPort.BeginExecuteAsyncCommand(string commandText, bool runInShell, IDebugUnixShellCommandCallback callback, out IDebugUnixShellAsyncCommand asyncCommand)
         {
-            GetConnection(ConnectionReason.Deferred).BeginExecuteAsyncCommand(commandText, callback, out asyncCommand);
+            GetConnection(ConnectionReason.Deferred).BeginExecuteAsyncCommand(commandText, runInShell, callback, out asyncCommand);
         }
 
         void IConnectionPointContainer.EnumConnectionPoints(out IEnumConnectionPoints ppEnum)
@@ -207,6 +207,11 @@ namespace Microsoft.SSHDebugPS
             return GetConnection(ConnectionReason.Deferred).GetUserHomeDirectory();
         }
 
+        public string GdbServerAttachProcess(int id, string preAttachCommand)
+        {
+            return GetConnection(ConnectionReason.Deferred).AttachToProcess(id, preAttachCommand);
+        }
+
         public bool IsOSX()
         {
             return GetConnection(ConnectionReason.Deferred).IsOSX();
@@ -215,6 +220,12 @@ namespace Microsoft.SSHDebugPS
         public bool IsLinux()
         {
             return GetConnection(ConnectionReason.Deferred).IsLinux();
+        }
+
+        public void Clean()
+        {
+            if (_connection != null)
+                _connection.Clean();
         }
     }
 }

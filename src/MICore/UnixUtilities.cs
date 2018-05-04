@@ -14,7 +14,7 @@ namespace MICore
     {
         internal const string FifoPrefix = "Microsoft-MIEngine-fifo-";
         internal const string SudoPath = "/usr/bin/sudo";
-        // Mono seems to hang when the is a large response unless we specify a larger buffer here
+        // Mono seems to stop responding when the is a large response unless we specify a larger buffer here
         internal const int StreamBufferSize = 1024 * 4;
         private const string PKExecPath = "/usr/bin/pkexec";
 
@@ -83,7 +83,7 @@ namespace MICore
                 bool isRoot = UnixNativeMethods.GetEUid() == 0;
 
                 // If the system doesn't allow a non-root process to attach to another process, try to run GDB as root
-                if (localOptions.ProcessId != 0 && !isRoot && UnixUtilities.GetRequiresRootAttach(localOptions.DebuggerMIMode))
+                if (localOptions.ProcessId.HasValue && !isRoot && UnixUtilities.GetRequiresRootAttach(localOptions.DebuggerMIMode))
                 {
                     prompt = String.Format(CultureInfo.CurrentCulture, "read -n 1 -p \\\"{0}\\\" yn; if [[ ! $yn =~ ^[Yy]$ ]] ; then exit 0; fi; ", MICoreResources.Warn_AttachAsRootProcess);
 
@@ -172,7 +172,7 @@ namespace MICore
             return UnixNativeMethods.GetPGid(processId) >= 0;
         }
 
-        public static bool IsBinarySigned(string filePath)
+        public static bool IsBinarySigned(string filePath, Logger logger)
         {
             if (!PlatformUtilities.IsOSX())
             {
@@ -184,15 +184,37 @@ namespace MICore
                 StartInfo =
                 {
                     CreateNoWindow = true,
-                    UseShellExecute = true,
+                    UseShellExecute = false,
                     FileName = CodeSignPath,
-                    Arguments = "--display " + filePath
+                    Arguments = "--display " + filePath,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
                  }
             };
 
+            p.OutputDataReceived += (sender, e) =>
+            {
+                OutputNonEmptyString(e.Data, "codeSign-stdout: ", logger);
+            };
+
+            p.ErrorDataReceived += (sender, e) =>
+            {
+                OutputNonEmptyString(e.Data, "codeSign-stderr: ", logger);
+            };
+
             p.Start();
+            p.BeginOutputReadLine();
+            p.BeginErrorReadLine();
             p.WaitForExit();
             return p.ExitCode == 0;
+        }
+
+        internal static void OutputNonEmptyString(string str, string prefix, Logger logger)
+        {
+            if (!String.IsNullOrWhiteSpace(str) && logger != null)
+            {
+                logger.WriteLine(prefix + str);
+            }
         }
 
         internal static void KillProcessTree(Process p)

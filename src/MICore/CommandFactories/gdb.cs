@@ -26,7 +26,11 @@ namespace MICore
         public override void DefineCurrentThread(int threadId)
         {
             _currentThreadId = threadId;
+            // If current threadId is changed, reset _currentFrameLevel
+            _currentFrameLevel = 0;
         }
+
+        public override int CurrentThread { get { return _currentThreadId; } }
 
         public override bool SupportsStopOnDynamicLibLoad()
         {
@@ -155,15 +159,17 @@ namespace MICore
                 _currentFrameLevel = frameLevel;
             }
         }
-        public override async Task<Results> ThreadInfo()
+
+        public override async Task<Results> ThreadInfo(uint? threadId = null)
         {
-            Results results = await base.ThreadInfo();
+            Results results = await base.ThreadInfo(threadId);
             if (results.ResultClass == ResultClass.done && results.Contains("current-thread-id"))
             {
                 _currentThreadId = results.FindInt("current-thread-id");
             }
             return results;
         }
+
         public override async Task<List<ulong>> StartAddressesForLine(string file, uint line)
         {
             string cmd = "info line " + file + ":" + line;
@@ -205,6 +211,7 @@ namespace MICore
             // that isn't actually supported by gdb. 
             await _debugger.CmdAsync("kill", ResultClass.None);
         }
+
         private static string TypeBySize(uint size)
         {
             switch (size)

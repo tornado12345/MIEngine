@@ -51,7 +51,7 @@ namespace MICore
             _isRoot = UnixNativeMethods.GetEUid() == 0;
         }
 
-        public void Launch(string workingDirectory)
+        public void Launch(string workingDirectory, Logger logger)
         {
             _terminalProcess = new Process
             {
@@ -61,12 +61,28 @@ namespace MICore
                     UseShellExecute = false,
                     WorkingDirectory = workingDirectory,
                     FileName = GetProcessExecutable(),
-                    Arguments = GetProcessArgs()
+                    Arguments = GetProcessArgs(),
+                    // Redirect stdout and stderr to logging
+                    // or else it will send to the default stdout and stderr
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
                 }
+            };
+
+            _terminalProcess.OutputDataReceived += (sender, e) =>
+            {
+                UnixUtilities.OutputNonEmptyString(e.Data, "term-stdout: ", logger);
+            };
+
+            _terminalProcess.ErrorDataReceived += (sender, e) =>
+            {
+                UnixUtilities.OutputNonEmptyString(e.Data, "term-stderr:", logger);
             };
 
             SetNewProcessEnvironment(_terminalProcess.StartInfo);
             _terminalProcess.Start();
+            _terminalProcess.BeginOutputReadLine();
+            _terminalProcess.BeginErrorReadLine();
         }
     }
 

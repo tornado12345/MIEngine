@@ -10,10 +10,10 @@ using Microsoft.VisualStudio.Debugger.Interop.UnixPortSupplier;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Linq;
 using MICore;
 using System.Globalization;
 using Microsoft.DebugEngineHost;
-
 using Logger = MICore.Logger;
 
 namespace Microsoft.MIDebugEngine
@@ -63,6 +63,10 @@ namespace Microsoft.MIDebugEngine
 
         private static List<int> s_childProcessLaunch;
 
+        private static int s_bpLongBindTimeout = 0;
+
+        private IDebugUnixShellPort _unixPort;
+
         static AD7Engine()
         {
             s_childProcessLaunch = new List<int>();
@@ -80,6 +84,10 @@ namespace Microsoft.MIDebugEngine
             if (_pollThread != null)
             {
                 _pollThread.Close();
+            }
+            if (_unixPort != null && _unixPort is IDebugPortCleanup)
+            {
+                ((IDebugPortCleanup)_unixPort).Clean();
             }
         }
 
@@ -114,15 +122,20 @@ namespace Microsoft.MIDebugEngine
             uint radix;
             if (_settingsCallback != null && _settingsCallback.GetDisplayRadix(out radix) == Constants.S_OK)
             {
-                if (radix != _debuggedProcess.MICommandFactory.Radix)
-                {
-                    _debuggedProcess.WorkerThread.RunOperation(async () =>
-                    {
-                        await _debuggedProcess.MICommandFactory.SetRadix(radix);
-                    });
-                }
+                return radix;
             }
-            return _debuggedProcess.MICommandFactory.Radix;
+            else
+            {
+                return _debuggedProcess.MICommandFactory.Radix;
+            }
+        }
+
+        internal async Task UpdateRadixAsync(uint radix)
+        {
+            if (radix != _debuggedProcess.MICommandFactory.Radix)
+            {
+                    await _debuggedProcess.MICommandFactory.SetRadix(radix);
+            }
         }
 
         internal bool ProgramCreateEventSent
@@ -147,6 +160,8 @@ namespace Microsoft.MIDebugEngine
         public int Attach(IDebugProgram2[] portProgramArray, IDebugProgramNode2[] programNodeArray, uint celtPrograms, IDebugEventCallback2 ad7Callback, enum_ATTACH_REASON dwReason)
         {
             Debug.Assert(_ad7ProgramId == Guid.Empty);
+
+            Logger.LoadMIDebugLogger(_configStore);
 
             if (celtPrograms != 1)
             {
@@ -183,6 +198,10 @@ namespace Microsoft.MIDebugEngine
 
                     _engineCallback = new EngineCallback(this, ad7Callback);
                     LaunchOptions launchOptions = CreateAttachLaunchOptions(processId.dwProcessId, port);
+                    if (port is IDebugUnixShellPort)
+                    {
+                        _unixPort = (IDebugUnixShellPort)port;
+                    }
                     StartDebugging(launchOptions);
                 }
                 else
@@ -205,7 +224,7 @@ namespace Microsoft.MIDebugEngine
                 exception = e;
             }
 
-            // If we just return the exception as an HRESULT, we will loose our message, so we instead send up an error event, and
+            // If we just return the exception as an HRESULT, we will lose our message, so we instead send up an error event, and
             // return that the attach was canceled
             OnStartDebuggingFailed(exception);
             return AD7_HRESULT.E_ATTACH_USER_CANCELED;
@@ -243,17 +262,13 @@ namespace Microsoft.MIDebugEngine
                 string remoteDebuggerInstallationSubDirectory = GetMetric("RemoteInstallationSubDirectory") as string;
                 string clrDbgVersion = GetMetric("ClrDbgVersion") as string;
 
-                launchOptions = UnixShellPortLaunchOptions.CreateForAttachRequest(unixPort,
-                                                                                (int)processId,
-                                                                                miMode,
-                                                                                getClrDbgUrl,
-                                                                                remoteDebuggerInstallationDirectory,
-                                                                                remoteDebuggerInstallationSubDirectory,
-                                                                                clrDbgVersion);
-
-                // TODO: Add a tools option page for:
-                // AdditionalSOLibSearchPath
-                // VisualizerFile?
+                launchOptions = LaunchOptions.CreateForAttachRequest(unixPort,
+                                                                    (int)processId,
+                                                                    miMode,
+                                                                    getClrDbgUrl,
+                                                                    remoteDebuggerInstallationDirectory,
+                                                                    remoteDebuggerInstallationSubDirectory,
+                                                                    clrDbgVersion, Logger);
             }
             else
             {
@@ -358,6 +373,21 @@ namespace Microsoft.MIDebugEngine
             }
 
             return Constants.S_OK;
+        }
+
+        public int GetBPLongBindTimeout()
+        {
+            if (s_bpLongBindTimeout == 0)
+            {
+                s_bpLongBindTimeout = 250; // default is to wait a quarter of a second
+
+                object timeoutExtension = _configStore.GetEngineMetric("BpLongBindTimeoutExtension");
+                if (timeoutExtension != null && timeoutExtension is int && ((int)timeoutExtension == 1))
+                {
+                    s_bpLongBindTimeout = 50000; // if its set, make it longer
+                }
+            }
+            return s_bpLongBindTimeout;
         }
 
         // Informs a DE that the program specified has been atypically terminated and that the DE should
@@ -529,7 +559,7 @@ namespace Microsoft.MIDebugEngine
                 // Return from the catch block so that we can let the exception unwind - the stack can get kind of big
             }
 
-            // If we just return the exception as an HRESULT, we will loose our message, so we instead send up an error event, and then
+            // If we just return the exception as an HRESULT, we will lose our message, so we instead send up an error event, and then
             // return E_ABORT.
             OnStartDebuggingFailed(exception);
 
@@ -761,6 +791,11 @@ namespace Microsoft.MIDebugEngine
             {
                 return AD7_HRESULT.E_CRASHDUMP_UNSUPPORTED;
             }
+            catch (Exception e)
+            {
+                _engineCallback.OnError(EngineUtils.GetExceptionDescription(e));
+                return Constants.E_ABORT;
+            }
 
             return Constants.S_OK;
         }
@@ -774,13 +809,13 @@ namespace Microsoft.MIDebugEngine
             try
             {
                 _pollThread.RunOperation(() => _debuggedProcess.CmdDetach());
+                _debuggedProcess.Detach();
             }
-            catch (DebuggerDisposedException e) when (e.AbortedCommand == "-target-detach")
+            catch (DebuggerDisposedException)
             {
                 // Detach command could cause DebuggerDisposedException and we ignore that.
             }
 
-            _debuggedProcess.Detach();
             return Constants.S_OK;
         }
 
@@ -839,12 +874,9 @@ namespace Microsoft.MIDebugEngine
         {
             DebuggedModule[] modules = _debuggedProcess.GetModules();
 
-            AD7Module[] moduleObjects = new AD7Module[modules.Length];
-            for (int i = 0; i < modules.Length; i++)
-            {
-                moduleObjects[i] = new AD7Module(modules[i], _debuggedProcess);
-            }
-
+            AD7Module[] moduleObjects = modules.Select(backendModule => backendModule.Client as AD7Module)
+                .Where(ad7Module => ad7Module != null) // Ignore any modules that we haven't quite sent the module load event for
+                .ToArray();
             ppEnum = new Microsoft.MIDebugEngine.AD7ModuleEnum(moduleObjects);
 
             return Constants.S_OK;
@@ -948,6 +980,11 @@ namespace Microsoft.MIDebugEngine
             catch (InvalidCoreDumpOperationException)
             {
                 return AD7_HRESULT.E_CRASHDUMP_UNSUPPORTED;
+            }
+            catch (Exception e)
+            {
+                _engineCallback.OnError(EngineUtils.GetExceptionDescription(e));
+                return Constants.E_ABORT;
             }
 
             return Constants.S_OK;

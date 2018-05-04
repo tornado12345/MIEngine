@@ -3,7 +3,7 @@ script_dir=`dirname $0`
 
 print_help()
 {
-    echo 'InstallToVSCode.sh <link|copy> <oss-dev|alpha|insiders|stable> <open-debug-ad7-dir> -d <clrdbg-binaries>'
+    echo 'InstallToVSCode.sh <link|copy> <oss-dev|alpha|insiders|stable> <open-debug-ad7-dir> -d <vsdbg-binaries|novsdbg>'
     echo ''
     echo 'This script is used to copy files needed to enable MIEngine based debugging'
     echo 'into VS Code.'
@@ -19,10 +19,10 @@ print_help()
     echo ' stable: Install to VSCode stable'
     echo ''
     echo ' open-debug-ad7-dir : Root of the OpenDebugAD7 repo'
-    echo ' clrdbg-binaries-dir : Directory containing clrdbg binaries'
+    echo ' vsdbg-binaries-dir : Directory containing vsdbg binaries'
     echo ''
     echo 'Example:'
-    echo "$script_dir/InstallToVSCode.sh link alpha /Volumes/dd/OpenDebugAD7 -d ~/clrdbg/out/Linux/bin/x64.Debug/clrdbg"
+    echo "$script_dir/InstallToVSCode.sh link alpha /Volumes/dd/OpenDebugAD7 -d ~/vsdbg/out/Linux/bin/x64.Debug/vsdbg"
 }
 
 # Copies a file to another file or directory
@@ -119,7 +119,7 @@ SetupSymLink()
             rm -r $1
         fi
     fi
-    
+
     ln -s $2 $1
     return $?
 }
@@ -171,15 +171,17 @@ pushd $DropDir >/dev/null
 DropDir=$(pwd)
 popd >/dev/null
 
-[ ! "$4" == "-d" ] && echo "ERROR: Bad command line argument. Expected '-d <clrdbg-dir>'." && exit 1
-CLRDBGBITSDIR=${5:?"ERROR: Clrdbg binaries directory must be specified with -d option. See -h for usage."}
-[ ! -f "$CLRDBGBITSDIR/clrdbg" ] && echo "ERROR: $CLRDBGBITSDIR/clrdbg does not exist." && exit 1
+[ ! "$4" == "-d" ] && echo "ERROR: Bad command line argument. Expected '-d <vsdbg-dir|novsdbg>'." && exit 1
+VSDBGBITSDIR=${5:?"ERROR: VsDbg binaries directory must be specified with -d option. See -h for usage."}
+if [ "$VSDBGBITSDIR" != "novsdbg" ]; then
+    [ ! -f "$VSDBGBITSDIR/vsdbg" ] && echo "ERROR: $VSDBGBITSDIR/vsdbg does not exist." && exit 1
+fi
 DESTDIR=$HOME/.MIEngine-VSCode-Debug
 
 VSCodeExtensionsRoot=$HOME/$VSCodeDirName/extensions
 [ ! -d "$VSCodeExtensionsRoot" ] && echo "ERROR: $VSCodeExtensionsRoot does not exist." && exit 1
 
-CSharpExtensionRoot="$(ls -d $VSCodeExtensionsRoot/ms-vscode.csharp-* 2>/dev/null)" 
+CSharpExtensionRoot="$(ls -d $VSCodeExtensionsRoot/ms-vscode.csharp-* 2>/dev/null)"
 [ "$CSharpExtensionRoot" == "" ] && echo "ERROR: C# extension is not installed in VS Code. No directory matching '$VSCodeExtensionsRoot/ms-vscode.csharp-*' found." && exit 1
 
 num_results=$(echo "$CSharpExtensionRoot" | wc -l)
@@ -194,11 +196,24 @@ fi
 mkdir -p "$DESTDIR"
 [ $? -ne 0 ] && echo "ERROR: unable to create destination directory '$DESTDIR'." && exit 1
 
-hash dotnet 2>/dev/null 
+hash dotnet 2>/dev/null
 [ $? -ne 0 ] && echo "ERROR: The .NET CLI is not installed. see: http://dotnet.github.io/getting-started/" && exit 1
 
-SetupSymLink "$CSharpExtensionRoot/coreclr-debug/debugAdapters" "$DESTDIR"
-[ $? -ne 0 ] && echo "ERROR: Unable to link $CSharpExtensionRoot/coreclr-debug/debugAdapters to $DESTDIR" && exit 1
+OSName=$(uname -s)
+if [ "$OSName" == "Linux" ]; then
+    DotnetSDKRoot=/usr/share/dotnet/sdk
+else
+    DotnetSDKRoot=/usr/local/share/dotnet/sdk
+fi
+
+DotnetDll="$DotnetSDKRoot/1.0.0-preview2-1-003177/dotnet.dll"
+if [ ! -f $DotnetDll ]; then
+    echo "ERROR: $DotnetDll not found. Ensure that the preview 2 .NET SDK is installed."
+    exit 1
+fi
+
+SetupSymLink "$CSharpExtensionRoot/.debugger" "$DESTDIR"
+[ $? -ne 0 ] && echo "ERROR: Unable to link $CSharpExtensionRoot/.debugger to $DESTDIR" && exit 1
 
 mkdir -p "$DESTDIR/CLRDependencies"
 [ $? -ne 0 ] && echo "ERROR: unable to create destination directory '$DESTDIR/CLRDependencies'." && exit 1
@@ -220,10 +235,10 @@ runtime_id=`dotnet --info | grep RID: | tr -d ' ' | cut -f2 -d:`
 sed s/@current-OS@/\ \ \ \ \"${runtime_id}\":{}/ project.json.template>project.json
 [ $? -ne 0 ] && echo "ERROR: sed failed." && exit 1
 
-dotnet restore
+dotnet $DotnetDll restore
 [ $? -ne 0 ] && echo "ERROR: dotnet restore failed." && exit 1
 
-dotnet publish -o "$DESTDIR"
+dotnet $DotnetDll publish -o "$DESTDIR"
 [ $? -ne 0 ] && echo "ERROR: dotnet publish failed." && exit 1
 
 popd >/dev/null
@@ -237,40 +252,46 @@ mv "$DESTDIR/dummy" "$DESTDIR/OpenDebugAD7"
 
 InstallError=
 install_module "$OpenDebugAD7BinDir/dar.exe"
-install_module "$OpenDebugAD7BinDir/xunit.console.netcore.exe" "" ignoreMissingPdbs 
+install_module "$OpenDebugAD7BinDir/xunit.console.netcore.exe" "" ignoreMissingPdbs
 for dll in $(ls $OpenDebugAD7BinDir/*.dll); do
     install_module "$dll" "" ignoreMissingPdbs
 done
 
-echo ''
-echo "Installing clrdbg bits from $CLRDBGBITSDIR"
+if [ "$VSDBGBITSDIR" != "novsdbg" ]; then
+    echo ''
+    echo "Installing vsdbg bits from $VSDBGBITSDIR"
 
-for clrdbgFile in $(ls $CLRDBGBITSDIR/*); do
-    if [ -f "$clrdbgFile" ]; then
-        # NOTE: We ignore files that already exist. This is because we have already
-        # cleaned the directory originally, and published CoreCLR files. Replacing existing
-        # files will replace some of those CoreCLR files with new copies that will not work.
-        install_new_file "$clrdbgFile"
-    fi
-done
-    
-for directory in $(ls -d $CLRDBGBITSDIR/*/); do
-    directory_name=$(basename $directory)
-        
-    if [ ! -d "$DESTDIR/$directory_name" ]; then
-        mkdir "$DESTDIR/$directory_name"
-    fi
-        
-    for dll in $(ls $directory/*.dll); do
-        install_file "$dll" "$directory_name/"
+    for vsdbgFile in $(ls $VSDBGBITSDIR/*); do
+        if [ -f "$vsdbgFile" ]; then
+            # NOTE: We ignore files that already exist. This is because we have already
+            # cleaned the directory originally, and published CoreCLR files. Replacing existing
+            # files will replace some of those CoreCLR files with new copies that will not work.
+            install_new_file "$vsdbgFile"
+        fi
     done
-done
+
+    for directory in $(ls -d $VSDBGBITSDIR/*/); do
+        directory_name=$(basename $directory)
+
+        if [ ! -d "$DESTDIR/$directory_name" ]; then
+            mkdir "$DESTDIR/$directory_name"
+        fi
+
+        for dll in $(ls $directory/*.dll); do
+            install_file "$dll" "$directory_name/"
+        done
+    done
+
+    # Rename vsdbg back to clrdbg
+    mv "$DESTDIR/vsdbg" "$DESTDIR/clrdbg"
+    [ $? -ne 0 ] && echo "ERROR: Unable to move vsdbg executable." && exit 1
+fi
 
 install_file "$script_dir/coreclr/coreclr.ad7Engine.json"
 install_file "$DropDir/osxlaunchhelper.scpt"
 
 for dll in Microsoft.MICore.dll Microsoft.MIDebugEngine.dll
-do 
+do
     install_module "$DropDir/$dll"
 done
 
@@ -290,7 +311,7 @@ fi
 # Write out an install.complete file so that the C# extension doesn't try to restore.
 echo "InstallToVSCode.sh done">$DESTDIR/install.complete
 
-echo "InstallToVSCode.sh succeeded. Open directory '$OpenDebugAD7Dir' in VS Code" 
+echo "InstallToVSCode.sh succeeded. Open directory '$OpenDebugAD7Dir' in VS Code"
 echo "to debug. Edit .vscode/launch.json before launching."
 echo ""
 exit 0

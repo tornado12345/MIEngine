@@ -156,17 +156,17 @@ Error: {1}</value>
     <value>Launch options string provided by the project system is invalid. {0}</value>
   </data>
   <data name="Error_InvalidLocalExePath" xml:space="preserve">
-    <value>Invalid path to executable file path '{0}'. File must be a valid file name that exists.</value>
+    <value>Invalid executable file path: '{0}'. File must be a valid file name that exists.</value>
   </data>
   <data name="Error_LauncherNotFound" xml:space="preserve">
     <value>Device App Launcher {0} could not be found.</value>
   </data>
   <data name="Error_MIDebuggerExited_UnknownCode" xml:space="preserve">
-    <value>{0} exited unexpectedly. Debugging will now abort.</value>
+    <value>{0} exited unexpectedly.</value>
     <comment>{0} is the name of the debugger</comment>
   </data>
   <data name="Error_MIDebuggerExited_WithCode" xml:space="preserve">
-    <value>{0} exited unexpectedly with exit code {1}. Debugging will now abort.</value>
+    <value>{0} exited unexpectedly with exit code {1}.</value>
     <comment>{0} is the name of the debugger</comment>
   </data>
   <data name="Error_MissingAttribute" xml:space="preserve">
@@ -207,7 +207,7 @@ Error: {1}</value>
     <value>Module containing this breakpoint has not yet loaded or the breakpoint address could not be obtained.</value>
   </data>
   <data name="Error_InvalidLocalCoreDumpPath" xml:space="preserve">
-    <value>Invalid path to core dump file '{0}'. File must be a valid file name that exists on the computer.</value>
+    <value>Invalid core dump file path: '{0}'. File must be a valid file name that exists on the computer.</value>
   </data>
   <data name="Error_CannotSpecifyBoth" xml:space="preserve">
     <value>Both '{0}' and '{1}' cannot be specified at the same time.</value>
@@ -254,12 +254,57 @@ Error: {1}</value>
     <value>Killing pipe process</value>
   </data>
   <data name="Error_InvalidLocalDirectoryPath" xml:space="preserve">
-    <value>Invalid path to directory path '{0}'. Directory must be a valid directory name that exists.</value>
+    <value>Invalid directory path: '{0}'. Directory must be a valid directory name that exists.</value>
   </data>
   <data name="Error_EmptyPipePath" xml:space="preserve">
     <value>PipePath cannot be empty.</value>
   </data>
   <data name="Error_LauncherSerializerNotFound" xml:space="preserve">
     <value>Device App Launcher Serializer {0} could not be found.</value>
+  </data>
+  <data name="Error_DebuggerClosed" xml:space="preserve">
+    <value>The debugger is no longer debugging the specified process.</value>
+  </data>
+  <data name="Error_TargetProcessExited" xml:space="preserve">
+    <value>The target process has exited.</value>
+  </data>
+  <data name="Error_ProcessingFile" xml:space="preserve">
+    <value>Error while processing {0}: {1}</value>
+  </data>
+  <data name="Error_PipeProgramNotFound" xml:space="preserve">
+    <value>PipeProgram '{0}' could not be found.</value>
+    <comment>{0} pipe program</comment>
+  </data>
+  <data name="Error_PipeProgramStart" xml:space="preserve">
+    <value>There was an error starting the pipe program '{0}'. {1}</value>
+    <comment>{0} pipe program
+{1} error message</comment>
+  </data>
+  <data name="Error_SourceFileMapFormat" xml:space="preserve">
+    <value>The format of source file map entry '{0}' is incorrect.  </value>
+    <comment>{0} source file map entry</comment>
+  </data>
+  <data name="Error_InvalidLaunchCompleteCommandValue" xml:space="preserve">
+    <value>Unknown launchCompleteCommand value '{0}'. Expected values are 'exec-run', 'exec-continue' and 'None'.</value>
+    <comment>{0} value</comment>
+  </data>
+  <data name="Error_UnsupportedWindowsGdb" xml:space="preserve">
+    <value>GDB version {0} is not supported on Windows. Consider upgrading.
+
+{1}</value>
+    <comment>GDB is an acronym and should not be localized. {0} represents a dotted decimal version number. {1} represents a more detailed error message.</comment>
+  </data>
+  <data name="Error_UnexpectedResultClass" xml:space="preserve">
+    <value>Unexpected ResultClass from MI Debugger. Expected '{0}' but received '{1}'.</value>
+    <comment>{0} expected value, {1} received value</comment>
+  </data>
+  <data name="Error_CommandAborted" xml:space="preserve">
+    <value>Command aborted. See the output window for additional details.</value>
+  </data>
+  <data name="Info_UnableToContinue" xml:space="preserve">
+    <value>Debugger was unable to continue the process.</value>
+  </data>
+  <data name="Error_UnknownCustomLauncher" xml:space="preserve">
+    <value>Unrecognized json customLauncher element '{0}'.</value>
   </data>
 </root>

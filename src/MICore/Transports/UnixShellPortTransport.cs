@@ -28,6 +28,24 @@ namespace MICore
         private const string ErrorPrefix = "Error:";
         private const string ShellScriptName = "GetClrDbg.sh";
 
+        private class UnixShellAsyncCommandCallback: IDebugUnixShellCommandCallback
+        {
+            UnixShellPortTransport _parent;
+            public UnixShellAsyncCommandCallback(UnixShellPortTransport parent)
+            {
+                this._parent = parent;
+            }
+
+            public void OnOutputLine(string line)
+            {
+                ((IDebugUnixShellCommandCallback)_parent).OnOutputLine(line);
+            }
+
+            public void OnExit(string exitCode)
+            {
+            }
+        }
+
         public UnixShellPortTransport()
         {
         }
@@ -58,7 +76,7 @@ namespace MICore
             }
 
             _callback.AppendToInitializationLog(string.Format(CultureInfo.CurrentUICulture, MICoreResources.Info_StartingUnixCommand, _startRemoteDebuggerCommand));
-            _launchOptions.UnixPort.BeginExecuteAsyncCommand(_startRemoteDebuggerCommand, this, out _asyncCommand);
+            _launchOptions.UnixPort.BeginExecuteAsyncCommand(_startRemoteDebuggerCommand, true, this, out _asyncCommand);
         }
 
         /// <summary>
@@ -194,6 +212,25 @@ namespace MICore
 
         public bool CanExecuteCommand()
         {
+            return true;
+        }
+
+        public bool Interrupt(int pid)
+        {
+            string killCmd = string.Format(CultureInfo.InvariantCulture, "kill -2 {0}", pid);
+
+            try
+            {
+                IDebugUnixShellAsyncCommand asyncCommand;
+                UnixShellAsyncCommandCallback callbacks = new UnixShellAsyncCommandCallback(this);
+                _launchOptions.UnixPort.BeginExecuteAsyncCommand(killCmd, false, callbacks, out asyncCommand);
+            }
+            catch (Exception e)
+            {
+                this._callback.OnStdErrorLine(string.Format(CultureInfo.InvariantCulture, MICoreResources.Warn_ProcessException, killCmd, e.Message));
+                return false;
+            }
+
             return true;
         }
     }

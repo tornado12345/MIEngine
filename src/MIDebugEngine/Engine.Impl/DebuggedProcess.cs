@@ -1,22 +1,20 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+using MICore;
+using Microsoft.DebugEngineHost;
+using Microsoft.VisualStudio.Debugger.Interop;
 using System;
 using System.Collections.Generic;
-using System.Text;
-using Microsoft.VisualStudio.Debugger.Interop;
-using System.Diagnostics;
-using System.Threading;
 using System.Collections.ObjectModel;
-using MICore;
-using System.Threading.Tasks;
+using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Globalization;
 using System.Reflection;
-using System.Runtime.InteropServices;
-using Microsoft.DebugEngineHost;
-
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using Logger = MICore.Logger;
 
 namespace Microsoft.MIDebugEngine
@@ -51,6 +49,8 @@ namespace Microsoft.MIDebugEngine
         private bool _needTerminalReset;
         private HashSet<Tuple<string, string>> _fileTimestampWarnings;
         private ProcessSequence _childProcessHandler;
+        private bool _deleteEntryPointBreakpoint;
+        private string _entryPointBreakpoint = String.Empty;
 
         public DebuggedProcess(bool bLaunched, LaunchOptions launchOptions, ISampleEngineCallback callback, WorkerThread worker, BreakpointManager bpman, AD7Engine engine, HostConfigurationStore configStore, HostWaitLoop waitLoop = null) : base(launchOptions, engine.Logger)
         {
@@ -61,6 +61,7 @@ namespace Microsoft.MIDebugEngine
             Engine = engine;
             _libraryLoaded = new List<string>();
             _loadOrder = 0;
+            _deleteEntryPointBreakpoint = false;
             MICommandFactory = MICommandFactory.GetInstance(launchOptions.DebuggerMIMode, this);
             _waitDialog = (MICommandFactory.SupportsStopOnDynamicLibLoad() && launchOptions.WaitDynamicLibLoad) ? new HostWaitDialog(ResourceStrings.LoadingSymbolMessage, ResourceStrings.LoadingSymbolCaption) : null;
             Natvis = new Natvis.Natvis(this, launchOptions.ShowDisplayString);
@@ -177,7 +178,7 @@ namespace Microsoft.MIDebugEngine
                 if (PlatformUtilities.IsOSX() &&
                     localLaunchOptions.DebuggerMIMode != MIMode.Clrdbg &&
                     localLaunchOptions.DebuggerMIMode != MIMode.Lldb &&
-                    !UnixUtilities.IsBinarySigned(localLaunchOptions.MIDebuggerPath))
+                    !UnixUtilities.IsBinarySigned(localLaunchOptions.MIDebuggerPath, engine.Logger))
                 {
                     string message = String.Format(CultureInfo.CurrentCulture, ResourceStrings.Warning_DarwinDebuggerUnsigned, localLaunchOptions.MIDebuggerPath);
                     _callback.OnOutputMessage(new OutputMessage(
@@ -195,7 +196,7 @@ namespace Microsoft.MIDebugEngine
                     localTransport = new LocalUnixTerminalTransport();
 
                     // Only need to clear terminal for Linux and OS X local launch
-                    _needTerminalReset = (localLaunchOptions.ProcessId == 0 && _launchOptions.DebuggerMIMode == MIMode.Gdb);
+                    _needTerminalReset = (!localLaunchOptions.ProcessId.HasValue && _launchOptions.DebuggerMIMode == MIMode.Gdb);
                 }
                 else
                 {
@@ -260,7 +261,16 @@ namespace Microsoft.MIDebugEngine
                 }
 
                 // quit MI Debugger
-                _worker.PostOperation(CmdExitAsync);
+                if (!this.IsClosed)
+                {
+                    _worker.PostOperation(CmdExitAsync);
+                }
+                else
+                {
+                    // If we are already closed, make sure that something sends program destroy
+                    _callback.OnProcessExit(processExitCode);
+                }
+
                 if (_waitDialog != null)
                 {
                     _waitDialog.EndWaitDialog();
@@ -279,14 +289,14 @@ namespace Microsoft.MIDebugEngine
                 Dispose();
             };
 
-            DebuggerAbortedEvent += delegate (object o, /*OPTIONAL*/ string debuggerExitCode)
+            DebuggerAbortedEvent += delegate (object o, DebuggerAbortedEventArgs eventArgs)
             {
                 // NOTE: Exceptions leaked from this method may cause VS to crash, be careful
 
                 // The MI debugger process unexpectedly exited.
                 _worker.PostOperation(() =>
                     {
-                        _engineTelemetry.SendDebuggerAborted(MICommandFactory, GetLastSentCommandName(), debuggerExitCode);
+                        _engineTelemetry.SendDebuggerAborted(MICommandFactory, GetLastSentCommandName(), eventArgs.ExitCode);
 
                         // If the MI Debugger exits before we get a resume call, we have no way of sending program destroy. So just let start debugging fail.
                         if (!_connected)
@@ -294,13 +304,7 @@ namespace Microsoft.MIDebugEngine
                             return;
                         }
 
-                        string message;
-                        if (string.IsNullOrEmpty(debuggerExitCode))
-                            message = string.Format(CultureInfo.CurrentCulture, MICoreResources.Error_MIDebuggerExited_UnknownCode, MICommandFactory.Name);
-                        else
-                            message = string.Format(CultureInfo.CurrentCulture, MICoreResources.Error_MIDebuggerExited_WithCode, MICommandFactory.Name, debuggerExitCode);
-
-                        _callback.OnError(message);
+                        _callback.OnError(string.Concat(eventArgs.Message, " ", ResourceStrings.DebuggingWillAbort));
                         _callback.OnProcessExit(uint.MaxValue);
 
                         Dispose();
@@ -365,7 +369,7 @@ namespace Microsoft.MIDebugEngine
                 }
                 catch (Exception e) when (ExceptionHelper.BeforeCatch(e, Logger, reportOnlyCorrupting: true))
                 {
-                    if (_terminating || this.ProcessState == MICore.ProcessState.Exited)
+                    if (this.IsStopDebuggingInProgress)
                     {
                         return; // ignore exceptions after the process has exited
                     }
@@ -381,16 +385,45 @@ namespace Microsoft.MIDebugEngine
             ErrorEvent += delegate (object o, EventArgs args)
             {
                 // NOTE: Exceptions leaked from this method may cause VS to crash, be careful
-
                 ResultEventArgs result = (ResultEventArgs)args;
-                _callback.OnError(result.Results.FindString("msg"));
+                // In lldb, the format is ^error,message=""
+                // In gdb/vsdbg it is ^error,msg=""
+                string message = result.Results.TryFindString("msg");
+                if (String.IsNullOrWhiteSpace(message))
+                {
+                    message = result.Results.TryFindString("message");
+                }
+                // if the command was abort (usually because of breakpoints failing to bind) then gdb writes messages into the output
+                if (this.MICommandFactory.Mode == MIMode.Gdb && message == "Command aborted.")
+                {
+                    message = MICoreResources.Error_CommandAborted;
+                    if (ProcessState == ProcessState.Running)
+                    {
+                        // assume that it was a continue command that got aborted and return to stopped state:
+                        // this occurs when using openocd to debug embedded devices and it runs out of hardware breakpoints.
+                        int currentThread = MICommandFactory.CurrentThread;
+                        if (currentThread==0)
+                        {
+                            currentThread = 1;  // default to main thread is current doesn't have a valid value for some reason
+                        }
+                        ScheduleStdOutProcessing(string.Format(CultureInfo.CurrentCulture, @"*stopped,reason=""exception-received"",signal-name=""SIGINT"",thread-id=""{1}"",exception=""{0}""", MICoreResources.Info_UnableToContinue, currentThread));
+                    }
+                }
+                _callback.OnError(message);
             };
 
-            ThreadCreatedEvent += delegate (object o, EventArgs args)
+            ThreadCreatedEvent += async delegate (object o, EventArgs args)
             {
-                ResultEventArgs result = (ResultEventArgs)args;
-                ThreadCache.ThreadCreatedEvent(result.Results.FindInt("id"), result.Results.TryFindString("group-id"));
-                _childProcessHandler?.ThreadCreatedEvent(result.Results);
+                try
+                {
+                    ResultEventArgs result = (ResultEventArgs)args;
+                    await ThreadCache.ThreadCreatedEvent(result.Results.FindInt("id"), result.Results.TryFindString("group-id"));
+                    _childProcessHandler?.ThreadCreatedEvent(result.Results);
+                }
+                catch (Exception)
+                {
+                    // Avoid crashing VS
+                }
             };
 
             ThreadExitedEvent += delegate (object o, EventArgs args)
@@ -506,7 +539,7 @@ namespace Microsoft.MIDebugEngine
                         {
                             if (command.SuccessHandler != null)
                             {
-                                command.SuccessHandler(results.ToString());
+                                await command.SuccessHandler(results.ToString());
                             }
                         }
                     }
@@ -515,7 +548,7 @@ namespace Microsoft.MIDebugEngine
                         string resultString = await ConsoleCmdAsync(command.CommandText, command.IgnoreFailures);
                         if (command.SuccessHandler != null)
                         {
-                            command.SuccessHandler(resultString);
+                            await command.SuccessHandler(resultString);
                         }
                     }
                 }
@@ -539,6 +572,11 @@ namespace Microsoft.MIDebugEngine
 
             commands.AddRange(_launchOptions.SetupCommands);
 
+            if (_launchOptions.DebuggerMIMode == MIMode.Gdb)
+            {
+                commands.Add(new LaunchCommand("-interpreter-exec console \"set pagination off\""));
+            }
+
             // If the absolute prefix so path has not been specified, then don't set it to null
             // because the debugger might already have a default.
             if (!string.IsNullOrEmpty(_launchOptions.AbsolutePrefixSOLibSearchPath))
@@ -548,18 +586,18 @@ namespace Microsoft.MIDebugEngine
 
             // On Windows ';' appears to correctly works as a path seperator and from the documentation, it is ':' on unix
             string pathEntrySeperator = _launchOptions.UseUnixSymbolPaths ? ":" : ";";
-            string escappedSearchPath = string.Join(pathEntrySeperator, _launchOptions.GetSOLibSearchPath().Select(path => EscapePath(path, ignoreSpaces: true)));
-            if (!string.IsNullOrWhiteSpace(escappedSearchPath))
+            string escapedSearchPath = string.Join(pathEntrySeperator, _launchOptions.GetSOLibSearchPath().Select(path => EscapeSymbolPath(path, ignoreSpaces: true)));
+            if (!string.IsNullOrWhiteSpace(escapedSearchPath))
             {
                 if (_launchOptions.DebuggerMIMode == MIMode.Gdb)
                 {
                     // Do not place quotes around so paths for gdb
-                    commands.Add(new LaunchCommand("-gdb-set solib-search-path " + escappedSearchPath + pathEntrySeperator, ResourceStrings.SettingSymbolSearchPath));
+                    commands.Add(new LaunchCommand("-gdb-set solib-search-path " + escapedSearchPath + pathEntrySeperator, ResourceStrings.SettingSymbolSearchPath));
                 }
                 else
                 {
                     // surround so lib path with quotes in other cases
-                    commands.Add(new LaunchCommand("-gdb-set solib-search-path \"" + escappedSearchPath + pathEntrySeperator + "\"", ResourceStrings.SettingSymbolSearchPath));
+                    commands.Add(new LaunchCommand("-gdb-set solib-search-path \"" + escapedSearchPath + pathEntrySeperator + "\"", ResourceStrings.SettingSymbolSearchPath));
                 }
             }
 
@@ -605,12 +643,12 @@ namespace Microsoft.MIDebugEngine
                     this.AddGetTargetArchitectureCommand(commands);
 
                     // Add core dump information (linux/mac does not support quotes around this path but spaces in the path do work)
-                    string coreDump = _launchOptions.UseUnixSymbolPaths ? _launchOptions.CoreDumpPath : EscapePath(_launchOptions.CoreDumpPath);
+                    string coreDump = this.UseUnixPathSeparators ? _launchOptions.CoreDumpPath : this.EnsureProperPathSeparators(_launchOptions.CoreDumpPath);
                     string coreDumpCommand = _launchOptions.DebuggerMIMode == MIMode.Lldb ? String.Concat("target create --core ", coreDump) : String.Concat("-target-select core ", coreDump);
                     string coreDumpDescription = String.Format(CultureInfo.CurrentCulture, ResourceStrings.LoadingCoreDumpMessage, _launchOptions.CoreDumpPath);
                     commands.Add(new LaunchCommand(coreDumpCommand, coreDumpDescription, ignoreFailures: false));
                 }
-                else if (_launchOptions.ProcessId != 0)
+                else if (_launchOptions.ProcessId.HasValue)
                 {
                     // This is an attach
 
@@ -627,7 +665,7 @@ namespace Microsoft.MIDebugEngine
 
                             DetermineAndAddExecutablePathCommand(commands, _launchOptions as UnixShellPortLaunchOptions);
                         }
-                        else
+                        else if (!string.IsNullOrWhiteSpace(_launchOptions.ExePath))
                         {
                             this.AddExecutablePathCommand(commands);
                         }
@@ -642,22 +680,24 @@ namespace Microsoft.MIDebugEngine
                     {
                         commands.Add(new LaunchCommand("-target-select remote " + destination, string.Format(CultureInfo.CurrentUICulture, ResourceStrings.ConnectingMessage, destination)));
                     }
-
-                    Action<string> failureHandler = (string miError) =>
+                    else // gdbserver is already attached when using LocalLaunchOptions
                     {
-                        if (miError.Trim().StartsWith("ptrace:", StringComparison.OrdinalIgnoreCase))
+                        Action<string> failureHandler = (string miError) =>
                         {
-                            string message = string.Format(CultureInfo.CurrentUICulture, ResourceStrings.Error_PTraceFailure, _launchOptions.ProcessId, MICommandFactory.Name, miError);
-                            throw new LaunchErrorException(message);
-                        }
-                        else
-                        {
-                            string message = string.Format(CultureInfo.CurrentUICulture, ResourceStrings.Error_ExePathInvalid, _launchOptions.ExePath, MICommandFactory.Name, miError);
-                            throw new LaunchErrorException(message);
-                        }
-                    };
+                            if (miError.Trim().StartsWith("ptrace:", StringComparison.OrdinalIgnoreCase))
+                            {
+                                string message = string.Format(CultureInfo.CurrentUICulture, ResourceStrings.Error_PTraceFailure, _launchOptions.ProcessId, MICommandFactory.Name, miError);
+                                throw new LaunchErrorException(message);
+                            }
+                            else
+                            {
+                                string message = string.Format(CultureInfo.CurrentUICulture, ResourceStrings.Error_ExePathInvalid, _launchOptions.ExePath, MICommandFactory.Name, miError);
+                                throw new LaunchErrorException(message);
+                            }
+                        };
 
-                    commands.Add(new LaunchCommand("-target-attach " + _launchOptions.ProcessId, ignoreFailures: false, failureHandler: failureHandler));
+                        commands.Add(new LaunchCommand("-target-attach " + _launchOptions.ProcessId.Value, ignoreFailures: false, failureHandler: failureHandler));
+                    }
 
                     if (this.MICommandFactory.Mode == MIMode.Lldb)
                     {
@@ -673,8 +713,8 @@ namespace Microsoft.MIDebugEngine
 
                     if (!string.IsNullOrWhiteSpace(_launchOptions.WorkingDirectory))
                     {
-                        string escappedDir = EscapePath(_launchOptions.WorkingDirectory);
-                        commands.Add(new LaunchCommand("-environment-cd " + escappedDir));
+                        string escapedDir = this.EnsureProperPathSeparators(_launchOptions.WorkingDirectory);
+                        commands.Add(new LaunchCommand("-environment-cd " + escapedDir));
                     }
 
                     // TODO: The last clause for LLDB may need to be changed when we support LLDB on Linux
@@ -690,15 +730,6 @@ namespace Microsoft.MIDebugEngine
                     // Send client version to clrdbg to set the capabilities appropriately
                     if (this.MICommandFactory.Mode == MIMode.Clrdbg)
                     {
-                        string version = string.Empty;
-                        var attribute = this.GetType().GetTypeInfo().Assembly.GetCustomAttribute(typeof(System.Reflection.AssemblyFileVersionAttribute)) as AssemblyFileVersionAttribute;
-
-                        if (attribute != null)
-                        {
-                            version = attribute.Version;
-                        }
-
-                        commands.Add(new LaunchCommand("-gdb-set client-version \"" + version + "\""));
                         commands.Add(new LaunchCommand("-gdb-set client-ui \"" + Host.GetHostUIIdentifier().ToString() + "\""));
                     }
 
@@ -713,7 +744,29 @@ namespace Microsoft.MIDebugEngine
                         commands.Add(new LaunchCommand("-exec-arguments " + _launchOptions.ExeArguments));
                     }
 
-                    commands.Add(new LaunchCommand("-break-insert main", ignoreFailures: true));
+                    Func<string, Task> breakMainSuccessHandler = (string bkptResult) =>
+                    {
+                        int index = bkptResult.IndexOf("number=", StringComparison.Ordinal);
+                        if (index > 0)
+                        {
+                            string trimmedInnerText = bkptResult.Substring(index).Trim('\r', '\n', '{', '}');
+                            Dictionary<string, string> dict = trimmedInnerText
+                                .Split(',')
+                                .Select(value => value.Split('='))
+                                .Where(x => x.Length == 2)
+                                .ToDictionary(x => x.First(), x => x.Last());
+
+                            if (dict.Keys.Contains("number"))
+                            {
+                                this._entryPointBreakpoint = dict["number"];
+                                this._deleteEntryPointBreakpoint = true;
+                            }
+                        }
+
+                        return Task.FromResult(0);
+                    };
+
+                    commands.Add(new LaunchCommand("-break-insert main", ignoreFailures: true, successHandler: breakMainSuccessHandler));
 
                     if (null != localLaunchOptions)
                     {
@@ -744,7 +797,7 @@ namespace Microsoft.MIDebugEngine
             if (localLaunchOptions != null && PlatformUtilities.IsWindows() && this.MICommandFactory.Mode == MIMode.Gdb)
             {
                 // mingw will not implement this command, but to be safe, also check if the results contains the string cygwin.
-                LaunchCommand lc = new LaunchCommand("show configuration", null, true, null, new Action<string>((string resStr) =>
+                LaunchCommand lc = new LaunchCommand("show configuration", null, true, null, (string resStr) =>
                 {
                     if (resStr.Contains("cygwin"))
                     {
@@ -755,17 +808,20 @@ namespace Microsoft.MIDebugEngine
                     }
                     else
                     {
+                        this.IsMinGW = true;
                         // Gdb on windows and not cygwin implies mingw
                         _engineTelemetry.SendWindowsRuntimeEnvironment(EngineTelemetry.WindowsRuntimeEnvironment.MinGW);
                     }
-                }));
+
+                    return Task.FromResult(0);
+                });
                 commands.Add(lc);
             }
         }
 
         private void AddExecutablePathCommand(IList<LaunchCommand> commands)
         {
-            string exe = EscapePath(_launchOptions.ExePath);
+            string exe = this.EnsureProperPathSeparators(_launchOptions.ExePath);
             string description = string.Format(CultureInfo.CurrentUICulture, ResourceStrings.LoadingSymbolMessage, _launchOptions.ExePath);
 
             Action<string> failureHandler = (string miError) =>
@@ -785,14 +841,18 @@ namespace Microsoft.MIDebugEngine
             // /proc file system does not exist on OSX. And querying lsof on privilaged process fails with no output on Mac, while on Linux the command succeedes with 
             // embedded error text in lsof output like "(readlink error)". 
             string absoluteExePath;
+
+            // Must have a processId
+            Debug.Assert(_launchOptions.ProcessId.HasValue, "ProcessId should have a value.");
+
             if (launchOptions.UnixPort.IsOSX())
             {
                 // Usually the first FD=txt in the output of lsof points to the executable.
-                absoluteExePath = string.Format(CultureInfo.InvariantCulture, "shell lsof -p {0} | awk '$4 == \"txt\" {{ print $9 }}'|awk 'NR==1 {{print $1}}'", _launchOptions.ProcessId);
+                absoluteExePath = string.Format(CultureInfo.InvariantCulture, "shell lsof -p {0} | awk '$4 == \"txt\" {{ print $9 }}'|awk 'NR==1 {{print $1}}'", _launchOptions.ProcessId.Value);
             }
             else if (launchOptions.UnixPort.IsLinux())
             {
-                absoluteExePath = string.Format(CultureInfo.InvariantCulture, @"shell readlink -f /proc/{0}/exe", _launchOptions.ProcessId);
+                absoluteExePath = string.Format(CultureInfo.InvariantCulture, @"shell readlink -f /proc/{0}/exe", _launchOptions.ProcessId.Value);
             }
             else
             {
@@ -805,11 +865,17 @@ namespace Microsoft.MIDebugEngine
                 throw new LaunchErrorException(message);
             };
 
-            Action<string> successHandler = async (string exePath) =>
+            Func<string, Task> successHandler = async (string exePath) =>
             {
                 string trimmedExePath = exePath.Trim();
                 try
                 {
+                    // If the folder contains a space, we need to quote the path.
+                    if (trimmedExePath.Contains(' '))
+                    {
+                        trimmedExePath = "\"" + trimmedExePath + "\"";
+                    }
+
                     await CmdAsync("-file-exec-and-symbols " + trimmedExePath, ResultClass.done);
                 }
                 catch (UnexpectedMIResultException miException)
@@ -832,7 +898,7 @@ namespace Microsoft.MIDebugEngine
                     throw new LaunchErrorException(message);
                 };
 
-                Action<string> successHandler = (string resultsStr) =>
+                Func<string, Task> successHandler = (string resultsStr) =>
                 {
                     TargetArchitecture arch = MICommandFactory.ParseTargetArchitectureResult(resultsStr);
 
@@ -849,6 +915,8 @@ namespace Microsoft.MIDebugEngine
                     }
 
                     SetTargetArch(arch);
+
+                    return Task.FromResult(0);
                 };
 
                 string cmd = MICommandFactory.GetTargetArchitectureCommand();
@@ -924,7 +992,7 @@ namespace Microsoft.MIDebugEngine
             DebuggedThread thread = await ThreadCache.GetThread(tid);
             if (thread == null)
             {
-                if (!_terminating)
+                if (!this.IsStopDebuggingInProgress)
                 {
                     Debug.Fail("Failed to find thread on break event.");
                     throw new Exception(String.Format(CultureInfo.CurrentUICulture, ResourceStrings.MissingThreadBreakEvent, tid));
@@ -982,13 +1050,31 @@ namespace Microsoft.MIDebugEngine
             if (String.IsNullOrWhiteSpace(reason) && !this.EntrypointHit)
             {
                 breakRequest = BreakRequest.None;   // don't let stopping interfere with launch processing
-                this.EntrypointHit = true;
+
+                // MinGW sends a stopped event on attach. gdb<->gdbserver also sends a stopped event when first attached.
+                // If this is a gdb<->gdbserver connection, ignore this as the entryPoint
+                if (this._launchOptions is LocalLaunchOptions &&
+                    !String.IsNullOrWhiteSpace(((LocalLaunchOptions)this._launchOptions).MIDebuggerServerAddress))
+                {
+                    // If the stopped event occurs on gdbserver, ignore it unless it contains a filename.
+                    TupleValue frame = results.Results.TryFind<TupleValue>("frame");
+                    if (frame.Contains("file"))
+                    {
+                        this.EntrypointHit = true;
+                    }
+                }
+                else
+                {
+                    this.EntrypointHit = true;
+                }
+
                 CmdContinueAsync();
                 FireDeviceAppLauncherResume();
             }
             else if (reason == "entry-point-hit")
             {
                 this.EntrypointHit = true;
+                await this.OnEntrypointHit();
                 _callback.OnEntryPoint(thread);
             }
             else if (reason == "breakpoint-hit")
@@ -999,6 +1085,7 @@ namespace Microsoft.MIDebugEngine
                 bool fContinue;
                 TupleValue frame = results.Results.TryFind<TupleValue>("frame");
                 AD7BoundBreakpoint[] bkpt = _breakpointManager.FindHitBreakpoints(bkptno, addr, frame, out fContinue);
+
                 if (bkpt != null)
                 {
                     if (frame != null && addr != 0)
@@ -1010,8 +1097,12 @@ namespace Microsoft.MIDebugEngine
                         }
                     }
 
-                    // Hitting a bp before the entrypoint overrules entrypoint processing.
-                    this.EntrypointHit = true;
+                    if (!this.EntrypointHit)
+                    {
+                        // Hitting a bp before the entrypoint overrules entrypoint processing.
+                        this.EntrypointHit = true;
+                        await this.OnEntrypointHit();
+                    }
 
                     List<object> bplist = new List<object>();
                     bplist.AddRange(bkpt);
@@ -1020,14 +1111,7 @@ namespace Microsoft.MIDebugEngine
                 else if (!this.EntrypointHit)
                 {
                     this.EntrypointHit = true;
-
-                    if (this.MICommandFactory.Mode == MIMode.Lldb)
-                    {
-                        // When the terminal window is closed, a SIGHUP is sent to lldb-mi and LLDB's default is to stop.
-                        // We want to not stop (break) when this happens and the SIGHUP to be sent to the debuggee process.
-                        // LLDB requires this command to be issued after the process has started.
-                        await ConsoleCmdAsync("process handle --pass true --stop false --notify false SIGHUP", true);
-                    }
+                    await this.OnEntrypointHit();
 
                     _callback.OnEntryPoint(thread);
                 }
@@ -1109,9 +1193,9 @@ namespace Microsoft.MIDebugEngine
                         code = EngineUtils.SignalMap.Instance[sigName];
                     }
                     bool stoppedAtSIGSTOP = false;
-                    if (sigName == "SIGSTOP")
+                    if (sigName == "SIGSTOP" && _launchOptions.ProcessId.HasValue)
                     {
-                        if (AD7Engine.RemoveChildProcess(_launchOptions.ProcessId))
+                        if (AD7Engine.RemoveChildProcess(_launchOptions.ProcessId.Value))
                         {
                             stoppedAtSIGSTOP = true;
                         }
@@ -1151,6 +1235,27 @@ namespace Microsoft.MIDebugEngine
             if (IsExternalBreakRequest(breakRequest))
             {
                 _callback.OnStopComplete(thread);
+            }
+        }
+
+        /// <summary>
+        /// Tasks to run when the entry point is hit.
+        /// </summary>
+        private async Task OnEntrypointHit()
+        {
+            if (this.MICommandFactory.Mode == MIMode.Lldb)
+            {
+                // When the terminal window is closed, a SIGHUP is sent to lldb-mi and LLDB's default is to stop.
+                // We want to not stop (break) when this happens and the SIGHUP to be sent to the debuggee process.
+                // LLDB requires this command to be issued after the process has started.
+                await ConsoleCmdAsync("process handle --pass true --stop false --notify false SIGHUP", true);
+            }
+
+            if (this._deleteEntryPointBreakpoint && !String.IsNullOrWhiteSpace(this._entryPointBreakpoint))
+            {
+                // Try and delete the entrypoint breakpoint. We only try this once but in some cases this won't succeed
+                await MICommandFactory.BreakDelete(this._entryPointBreakpoint, ResultClass.None);
+                this._deleteEntryPointBreakpoint = false;
             }
         }
 
@@ -1214,9 +1319,37 @@ namespace Microsoft.MIDebugEngine
         {
             get { return _worker; }
         }
-        internal string EscapePath(string path, bool ignoreSpaces = false)
+
+        /// <summary>
+        /// Use to ensure path separators are correct for files that exist on the target debugger's machine.
+        /// If you are debugging on Windows to a remote instance of gdb or gdbserver, it will update it to Unix path separators.
+        /// </summary>
+        internal string EnsureProperPathSeparators(string path)
         {
-            if (_launchOptions.UseUnixSymbolPaths)
+            if (this.UseUnixPathSeparators)
+            {
+                path = path.Replace('\\', '/');
+            }
+            else
+            {
+                path = path.Trim();
+                path = path.Replace(@"\", @"\\");
+            }
+
+            if (path.IndexOfAny(new char[] { ' ', '\'' }) != -1)
+            {
+                path = '"' + path + '"';
+            }
+            return path;
+        }
+
+        /// <summary>
+        /// This method should be used to escape paths that are used by GDB (and NOT gdbserver) locally. 
+        /// Any path that gdbserver would use in remote server scenarios should use EnsureProperPathSeparators instead.
+        /// </summary>
+        internal string EscapeSymbolPath(string path, bool ignoreSpaces = false)
+        {
+            if (this.UseUnixSymbolPaths)
             {
                 path = path.Replace('\\', '/');
             }
@@ -1233,10 +1366,52 @@ namespace Microsoft.MIDebugEngine
             return path;
         }
 
+        /// <summary>
+        /// Check to see when to use Unix Path separators. Will check if we're doing a local Windows Launch. If it is, then
+        /// verify if a) we're doing a device launch and b) if MIDebuggerServerAddress is used. Device launch needs Windows path separators, 
+        /// but when gdbserver is used on Linux, then we need Unix separators.
+        /// </summary>
+        internal bool UseUnixPathSeparators
+        {
+            get
+            {
+                if (PlatformUtilities.IsWindows() && _launchOptions is LocalLaunchOptions)
+                {
+                    // If not a device launch (Android) and MIDebuggerServerAddress is specified, then we also need to use Unix symbol paths
+                    return _launchOptions.DeviceAppLauncher == null &&
+                        !String.IsNullOrWhiteSpace(((LocalLaunchOptions)_launchOptions).MIDebuggerServerAddress);
+                }
+
+                return true;
+            }
+        }
+
+        internal bool UseUnixSymbolPaths { get { return _launchOptions.UseUnixSymbolPaths; } }
+
         internal static string UnixPathToWindowsPath(string unixPath)
         {
             return unixPath.Replace('/', '\\');
         }
+
+        internal void LoadSymbols(DebuggedModule module)
+        {
+            if (MICommandFactory.Mode == MIMode.Gdb)
+            {
+                if (!module.SymbolsLoaded && !string.IsNullOrWhiteSpace(module.SymbolPath))
+                {
+                    Task evalTask = Task.Run(async () =>
+                    {
+                        await ConsoleCmdAsync("sharedlibrary " + module.Name);
+                        await CheckModules();
+                    });
+                }
+            }
+            else
+            {
+                throw new NotImplementedException();
+            }
+        }
+
         private async Task CheckModules()
         {
             // NOTE: The version of GDB that comes in the Android SDK doesn't support -file-list-shared-library
@@ -1302,6 +1477,11 @@ namespace Microsoft.MIDebugEngine
                         }
 
                         _callback.OnModuleLoad(module);
+                    }
+                    else if (!module.SymbolsLoaded && symbolsLoaded)
+                    {
+                        module.SymbolsLoaded = true;
+                        _callback.OnSymbolsLoaded(module);
                     }
                 }
             }
@@ -1418,8 +1598,12 @@ namespace Microsoft.MIDebugEngine
 
             if (_initialBreakArgs != null)
             {
-                await CheckModules();
-                _libraryLoaded.Clear();
+                if (MICommandFactory.SupportsStopOnDynamicLibLoad())
+                {
+                    await CheckModules();
+                    _libraryLoaded.Clear();
+                }
+
                 await HandleBreakModeEvent(_initialBreakArgs, BreakRequest.None);
                 _initialBreakArgs = null;
             }
@@ -1430,12 +1614,7 @@ namespace Microsoft.MIDebugEngine
             }
             else
             {
-                bool attach = false;
-                int attachPid = _launchOptions.ProcessId;
-                if (attachPid != 0)
-                {
-                    attach = true;
-                }
+                bool attach = _launchOptions.ProcessId.HasValue;
 
                 if (!attach)
                 {
@@ -1611,7 +1790,8 @@ namespace Microsoft.MIDebugEngine
         //NOTE: eval is not called
         public async Task<List<ArgumentList>> GetParameterInfoOnly(AD7Thread thread, bool values, bool types, uint low, uint high)
         {
-            var frames = await MICommandFactory.StackListArguments(values || types ? PrintValues.SimpleValues : PrintValues.NoValues, thread.Id, low, high);
+            // If values are requested, request simple values, otherwise we'll use -var-create to get the type of argument it is.
+            var frames = await MICommandFactory.StackListArguments(values ? PrintValues.SimpleValues : PrintValues.NoValues, thread.Id, low, high);
             List<ArgumentList> parameters = new List<ArgumentList>();
 
             foreach (var f in frames)
@@ -1635,13 +1815,32 @@ namespace Microsoft.MIDebugEngine
                         string[] names = ((ResultListValue)argList).FindAllStrings("name");
                         foreach (var n in names)
                         {
-                            args.Add(new SimpleVariableInformation(n, /*isParam*/ true, null, null));
+                            // If the types of the arguments are requested, get that from a call to -var-create
+                            string typeString = null;
+                            if (types)
+                            {
+                                Debug.Assert(!values, "GetParameterInfoOnly should not reach here if values is true");
+                                Results results = await MICommandFactory.VarCreate(n, thread.Id, (uint)level, 0, ResultClass.None);
+                                // Only get the type if the result is "done"
+                                if (results.ResultClass == ResultClass.done)
+                                {
+                                    typeString = results.TryFindString("type");
+
+                                    string varName = results.TryFindString("name");
+                                    if (!String.IsNullOrWhiteSpace(varName))
+                                    {
+                                        // Remove the variable we created as we don't track it.
+                                        await MICommandFactory.VarDelete(varName);
+                                    }
+                                }
+                            }
+
+                            args.Add(new SimpleVariableInformation(n, /*isParam*/ true, /*value*/null, String.IsNullOrWhiteSpace(typeString) ? null : typeString));
                         }
                     }
                 }
                 parameters.Add(new ArgumentList(level, args));
             }
-
             return parameters;
         }
 
@@ -1685,6 +1884,30 @@ namespace Microsoft.MIDebugEngine
                 bytes[pos] = Convert.ToByte(strByte, 16);
             }
             return toRead;
+        }
+
+        internal async Task<Tuple<ulong, ulong>> FindValidMemoryRange(ulong address, uint count, int offset)
+        {
+            var ret = new Tuple<ulong, ulong>(0, 0);    // init to an empty range
+            string cmd = String.Format(CultureInfo.InvariantCulture, "-data-read-memory-bytes -o {0} {1} {2}", offset.ToString(), EngineUtils.AsAddr(address, Is64BitArch), count.ToString());
+            Results results = await CmdAsync(cmd, ResultClass.None);
+            if (results.ResultClass == ResultClass.error)
+            {
+                return ret;
+            }
+            ValueListValue mem = results.Find<ValueListValue>("memory");
+            if (mem.IsEmpty())
+            {
+                return ret;
+            }
+            TupleValue res = mem.Content[0] as TupleValue;
+            if (res == null)
+            {
+                return ret;
+            }
+            ulong start = res.FindAddr("begin");
+            ulong end = res.FindAddr("end");
+            return new Tuple<ulong, ulong>(start, end);
         }
 
         private OutputMessage DecodeOutputEvent(Results results)
@@ -1869,10 +2092,20 @@ namespace Microsoft.MIDebugEngine
         public async Task<List<ulong>> StartAddressesForLine(string file, uint line)
         {
             List<ulong> addresses = new List<ulong>();
-            SourceLineMap srcLines = await SourceLineCache.GetLinesForFile(file);
-            if (srcLines == null || srcLines.Count == 0)
+            string compFile;
+            SourceLineMap srcLines;
+            if (MapCurrentSrcToCompileTimeSrc(file, out compFile))  // found a remote mapping for this source file
             {
-                srcLines = await SourceLineCache.GetLinesForFile(System.IO.Path.GetFileName(file));
+                file = compFile;
+                srcLines = await SourceLineCache.GetLinesForFile(file);
+            }
+            else
+            {
+                srcLines = await SourceLineCache.GetLinesForFile(file);
+                if (srcLines == null || srcLines.Count == 0)
+                {
+                    srcLines = await SourceLineCache.GetLinesForFile(System.IO.Path.GetFileName(file));
+                }
             }
             if (srcLines != null && srcLines.Count > 0)
             {
@@ -1896,7 +2129,7 @@ namespace Microsoft.MIDebugEngine
             if (addresses.Count == 0)
             {
                 // ask the underlying debugger for the line info
-                addresses = await MICommandFactory.StartAddressesForLine(EscapePath(file), line);
+                addresses = await MICommandFactory.StartAddressesForLine(file, line);
             }
             return addresses;
         }
@@ -1908,6 +2141,94 @@ namespace Microsoft.MIDebugEngine
         private Task<string> ResetConsole()
         {
             return ConsoleCmdAsync(@"shell echo -e \\033c 1>&2");
+        }
+
+        public bool MapCurrentSrcToCompileTimeSrc(string currentSrc, out string compilerSrc)
+        {
+            if (_launchOptions.SourceMap != null)
+            {
+                StringComparison comp = PlatformUtilities.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+                foreach (var e in _launchOptions.SourceMap)
+                {
+                    if (e.UseForBreakpoints && currentSrc.StartsWith(e.EditorPath, comp))
+                    {
+                        var file = currentSrc.Substring(e.EditorPath.Length);
+                        if (string.IsNullOrEmpty(file)) // matched the whole string
+                        {
+                            compilerSrc = e.CompileTimePath;  // return the matches compile time path
+                            return true;
+                        }
+                        // must do the path break at a directory boundry, i.e. at a '\' or '/' char
+                        char firstFilechar = file[0];
+                        char lastDirectoryChar = e.EditorPath[e.EditorPath.Length - 1];
+                        if (firstFilechar == Path.DirectorySeparatorChar || firstFilechar == Path.AltDirectorySeparatorChar)
+                        {
+                            file = file.Trim(new char[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar });   // Trim the directory separator(s)
+                        }
+                        else if (lastDirectoryChar != Path.DirectorySeparatorChar && lastDirectoryChar != Path.AltDirectorySeparatorChar)
+                        {
+                            continue;   // match didn't end at a directory separator, not actually a match
+                        }
+                        compilerSrc = Path.Combine(e.CompileTimePath, file);    // map to the compiled location
+                        if (compilerSrc.IndexOf('\\') > 0)
+                        {
+                            compilerSrc = compilerSrc.Replace('\\', '/'); // use Unix notation for the compiled path
+                        }
+                        return true;
+                    }
+                }
+            }
+            compilerSrc = currentSrc;
+            return false;
+        }
+
+        public bool MapCompileTimeSrcToCurrentSrc(string compilerSrc, out string currentName)
+        {
+            if (_launchOptions.SourceMap != null)
+            {
+                StringComparison comp = _launchOptions.UseUnixSymbolPaths ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+                foreach (var e in _launchOptions.SourceMap)
+                {
+                    if (string.IsNullOrEmpty(e.CompileTimePath))
+                    {
+                        continue;   // don't try to map back if path has an empty compiler src tree
+                    }
+                    if (compilerSrc.StartsWith(e.CompileTimePath, comp))
+                    {
+                        var file = compilerSrc.Substring(e.CompileTimePath.Length);
+                        if (string.IsNullOrEmpty(file)) // matched the whole directory string
+                        {
+                            break;  // use default
+                        }
+                        // must do the path break at a directory boundry, i.e. at a '\' or '/' char
+                        char firstFilechar = file[0];
+                        char lastDirectoryChar = e.CompileTimePath[e.CompileTimePath.Length - 1];
+                        if (file[0] == Path.DirectorySeparatorChar || file[0] == Path.AltDirectorySeparatorChar)
+                        {
+                            file = file.Trim(new char[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar });   // Trim the directory separator(s)
+                        }
+                        else if (lastDirectoryChar != Path.DirectorySeparatorChar && lastDirectoryChar != Path.AltDirectorySeparatorChar)
+                        {
+                            continue;   // match didn't end at a directory separator, not actually a match
+                        }
+                        currentName = Path.Combine(e.EditorPath, file);    // map to the compiled location
+                        return true;
+                    }
+                }
+            }
+            currentName = compilerSrc;
+            return false;
+        }
+
+        public string GetMappedFileFromTuple(TupleValue tuple)
+        {
+            string file = tuple.Contains("fullname") ? tuple.FindString("fullname") : tuple.TryFindString("file");
+            string currentName = string.Empty;
+            if (!string.IsNullOrEmpty(file))
+            {
+                MapCompileTimeSrcToCurrentSrc(file, out currentName);
+            }
+            return currentName;
         }
     }
 }

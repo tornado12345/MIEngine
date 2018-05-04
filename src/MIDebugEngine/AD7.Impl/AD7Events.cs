@@ -142,6 +142,26 @@ namespace Microsoft.MIDebugEngine
         }
     }
 
+    // This interface is sent by the debug engine (DE) to the session debug manager (SDM) when a modules symbols are loaded.
+    internal sealed class AD7SymbolLoadEvent : AD7AsynchronousEvent, IDebugSymbolSearchEvent2
+    {
+        public const string IID = "EA5B9681-2CE5-4F7A-B842-5183911CE5C6";
+
+        private readonly AD7Module _module;
+
+        public AD7SymbolLoadEvent(AD7Module module)
+        {
+            _module = module;
+        }
+
+        int IDebugSymbolSearchEvent2.GetSymbolSearchInfo(out IDebugModule3 pModule, ref string pbstrDebugMessage, enum_MODULE_INFO_FLAGS[] pdwModuleInfoFlags)
+        {
+            pModule = _module;
+            pdwModuleInfoFlags[0] = enum_MODULE_INFO_FLAGS.MIF_SYMBOLS_LOADED;
+            return Constants.S_OK;
+        }
+    }
+
     // This interface is sent by the debug engine (DE) to the session debug manager (SDM) when a program has run to completion
     // or is otherwise destroyed.
     internal sealed class AD7ProgramDestroyEvent : AD7SynchronousEvent, IDebugProgramDestroyEvent2
@@ -477,36 +497,6 @@ namespace Microsoft.MIDebugEngine
         int IDebugOutputStringEvent2.GetString(out string pbstrString)
         {
             pbstrString = _str;
-            return Constants.S_OK;
-        }
-
-        #endregion
-    }
-
-    // This interface is sent by the debug engine (DE) to indicate the results of searching for symbols for a module in the debuggee
-    internal sealed class AD7SymbolSearchEvent : AD7AsynchronousEvent, IDebugSymbolSearchEvent2
-    {
-        public const string IID = "638F7C54-C160-4c7b-B2D0-E0337BC61F8C";
-
-        private AD7Module _module;
-        private string _searchInfo;
-        private enum_MODULE_INFO_FLAGS _symbolFlags;
-
-        public AD7SymbolSearchEvent(AD7Module module, string searchInfo, enum_MODULE_INFO_FLAGS symbolFlags)
-        {
-            _module = module;
-            _searchInfo = searchInfo;
-            _symbolFlags = symbolFlags;
-        }
-
-        #region IDebugSymbolSearchEvent2 Members
-
-        int IDebugSymbolSearchEvent2.GetSymbolSearchInfo(out IDebugModule3 pModule, ref string pbstrDebugMessage, enum_MODULE_INFO_FLAGS[] pdwModuleInfoFlags)
-        {
-            pModule = _module;
-            pbstrDebugMessage = _searchInfo;
-            pdwModuleInfoFlags[0] = _symbolFlags;
-
             return Constants.S_OK;
         }
 

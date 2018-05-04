@@ -22,9 +22,9 @@ namespace MICore
         public readonly bool IgnoreFailures;
         public readonly bool IsMICommand;
         public /*OPTIONAL*/ Action<string> FailureHandler { get; private set; }
-        public /*OPTIONAL*/ Action<string> SuccessHandler { get; private set; }
+        public /*OPTIONAL*/ Func<string, Task> SuccessHandler { get; private set; }
 
-        public LaunchCommand(string commandText, string description = null, bool ignoreFailures = false, Action<string> failureHandler = null, Action<string> successHandler = null)
+        public LaunchCommand(string commandText, string description = null, bool ignoreFailures = false, Action<string> failureHandler = null, Func<string, Task> successHandler = null)
         {
             if (commandText == null)
                 throw new ArgumentNullException("commandText");
@@ -42,7 +42,18 @@ namespace MICore
             this.SuccessHandler = successHandler;
         }
 
-        public static ReadOnlyCollection<LaunchCommand> CreateCollectionFromXml(Xml.LaunchOptions.Command[] source)
+        public static ReadOnlyCollection<LaunchCommand> CreateCollection(List<Json.LaunchOptions.SetupCommand> source)
+        {
+            IList<LaunchCommand> commands = source?.Select(x => new LaunchCommand(x.Text, x.Description, x.IgnoreFailures.GetValueOrDefault(false))).ToList();
+            if(commands == null)
+            {
+                commands = new List<LaunchCommand>(0);
+            }
+
+            return new ReadOnlyCollection<LaunchCommand>(commands);
+        }
+
+        public static ReadOnlyCollection<LaunchCommand> CreateCollection(Xml.LaunchOptions.Command[] source)
         {
             LaunchCommand[] commandArray = source?.Select(x => new LaunchCommand(x.Value, x.Description, x.IgnoreFailures)).ToArray();
             if (commandArray == null)

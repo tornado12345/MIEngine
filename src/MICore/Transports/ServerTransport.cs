@@ -7,7 +7,6 @@ using System.Text;
 using System.Threading;
 using System.Diagnostics;
 using System.IO;
-using System.Collections.Specialized;
 using System.Collections;
 using System.Text.RegularExpressions;
 using System.Globalization;
@@ -37,7 +36,7 @@ namespace MICore
             proc.StartInfo.FileName = localOptions.DebugServer;
             proc.StartInfo.Arguments = localOptions.DebugServerArgs;
             proc.StartInfo.WorkingDirectory = miDebuggerDir;
-            _startPattern = localOptions.ServerStarted;
+            _startPattern = localOptions.ServerStarted; // Can be null
             _messagePrefix = Path.GetFileNameWithoutExtension(localOptions.DebugServer);
 
             InitProcess(proc, out reader, out writer);
@@ -45,7 +44,7 @@ namespace MICore
 
         protected override string FilterLine(string line)
         {
-            if (!_started && Regex.IsMatch(line, _startPattern, RegexOptions.None, new TimeSpan(0, 0, 0, 0, 10) /* 10 ms */))
+            if (!_started && (String.IsNullOrWhiteSpace(_startPattern) || Regex.IsMatch(line, _startPattern, RegexOptions.None, new TimeSpan(0, 0, 0, 0, 10) /* 10 ms */)))
             {
                 _started = true;
                 StartedEvent.Set();

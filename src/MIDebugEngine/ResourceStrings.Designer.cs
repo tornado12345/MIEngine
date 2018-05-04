@@ -20,7 +20,7 @@ namespace Microsoft.MIDebugEngine {
     // class via a tool like ResGen or Visual Studio.
     // To add or remove a member, edit your .ResX file then rerun ResGen
     // with the /str option, or rebuild your VS project.
-    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "4.0.0.0")]
+    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "15.0.0.0")]
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
     internal class ResourceStrings {
@@ -80,6 +80,15 @@ namespace Microsoft.MIDebugEngine {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Debugging will now abort..
+        /// </summary>
+        internal static string DebuggingWillAbort {
+            get {
+                return ResourceManager.GetString("DebuggingWillAbort", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Sample Engine.
         /// </summary>
         internal static string EngineName {
@@ -91,7 +100,9 @@ namespace Microsoft.MIDebugEngine {
         /// <summary>
         ///   Looks up a localized string similar to Program path &apos;{0}&apos; is missing or invalid.
         ///
-        ///{1} failed with message: {2}.
+        ///{1} failed with message: {2}
+        ///
+        ///This may occur if the process&apos;s executable was changed after the process was started, such as when installing an update. Try re-launching the application or restarting the machine..
         /// </summary>
         internal static string Error_ExePathInvalid {
             get {
@@ -346,7 +357,7 @@ namespace Microsoft.MIDebugEngine {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Conditional breakpoints are not supported.
+        ///   Looks up a localized string similar to Conditional breakpoints are not supported..
         /// </summary>
         internal static string UnsupportedConditionalBreakpoint {
             get {
@@ -355,7 +366,7 @@ namespace Microsoft.MIDebugEngine {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Hit counts on breakpoints are not supported.
+        ///   Looks up a localized string similar to Hit counts on breakpoints are not supported..
         /// </summary>
         internal static string UnsupportedPassCountBreakpoint {
             get {

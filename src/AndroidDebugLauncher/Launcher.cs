@@ -284,7 +284,7 @@ namespace AndroidDebugLauncher
                         throw new LauncherException(Telemetry.LaunchFailureCode.DeviceNotResponding, LauncherResources.Error_DeviceNotResponding);
                     }
 
-                    VerifySdkVersion();
+                    int deviceApiLevel = VerifySdkVersion();
 
                     if (_targetEngine == TargetEngine.Native)
                     {
@@ -294,6 +294,16 @@ namespace AndroidDebugLauncher
                         gdbServerRemotePath = GetGdbServerPath(workingDirectory, device);
 
                         KillOldInstances(gdbServerRemotePath);
+
+                        // Android apps that have their minumium API level set to 24 (Andoird 7.x, aka Nougat) or newer will 
+                        // have a working directory which isn't readable from the ADB process. Since we need to read this
+                        // for the 'debug-socket' and we don't know the API level of the app, to be safe we chmod it anytime
+                        // we are using a 24+ device.
+                        if (deviceApiLevel >= 24)
+                        {
+                            string chmodCommand = string.Concat("run-as ", _launchOptions.Package, " /system/bin/chmod a+x ", workingDirectory);
+                            ExecCommand(chmodCommand);
+                        }
                     }
                 }));
 
@@ -531,13 +541,22 @@ namespace AndroidDebugLauncher
         {
             Debug.Assert(_shell != null, "GetProcessIds called before m_shell is set");
 
-            ExecCommandNoLog("ps");
+            int sdkVersion = VerifySdkVersion();
+            if (sdkVersion >= 26)
+            {
+                ExecCommandNoLog("ps -A");
+            }
+            else
+            {
+                ExecCommandNoLog("ps");
+            }
+            
             var processList = new ProcessListParser(_shell.Out);
 
             return processList.FindProcesses(processName);
         }
 
-        private void VerifySdkVersion()
+        private int VerifySdkVersion()
         {
             Debug.Assert(_shell != null, "VerifySdkVersion called before m_shell is set");
 
@@ -554,6 +573,8 @@ namespace AndroidDebugLauncher
             {
                 throw new LauncherException(Telemetry.LaunchFailureCode.UnsupportedAndroidVersion, string.Format(CultureInfo.CurrentCulture, LauncherResources.Error_UnsupportedAPILevel, sdkVersion));
             }
+
+            return sdkVersion;
         }
 
         private string GetGdbServerPath(string workingDirectory, Device device)
@@ -645,7 +666,15 @@ namespace AndroidDebugLauncher
         {
             Debug.Assert(_shell != null, "KillOldInstances called before m_shell is set");
 
-            ExecCommand("ps");
+            int sdkVersion = VerifySdkVersion();
+            if (sdkVersion >= 26)
+            {
+                ExecCommand("ps -A");
+            }
+            else
+            {
+                ExecCommand("ps");
+            }
             var processList = new ProcessListParser(_shell.Out);
 
             if (!_launchOptions.IsAttach)

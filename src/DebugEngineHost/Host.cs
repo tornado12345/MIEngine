@@ -3,8 +3,10 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Internal.VisualStudio.Shell;
 using Microsoft.Internal.VisualStudio.Shell.Interop;
@@ -38,26 +40,48 @@ namespace Microsoft.DebugEngineHost
     /// </summary>
     public static class Host
     {
+        private static int s_mainThreadId;
+        private static bool s_initialized;
+        // Seperate class to make sure that we can catch any exceptions from the missing shell assemblies in glass
+        static internal class Impl
+        {
+            internal static void EnsureMainThreadInitialized()
+            {
+                s_mainThreadId = Thread.CurrentThread.ManagedThreadId;
+                s_initialized = true;
+                // This call is to initialize the global service provider while we are still on the main thread.
+                // Do not remove this this, even though the return value goes unused.
+                var globalProvider = Microsoft.VisualStudio.Shell.ServiceProvider.GlobalProvider;
+
+#if LAB
+                // Force the IVsTelemetryService to complete its lazy loading. It will stop responding because it is trying to
+                // send telemetry while Visual Studio is launching the debugger if the telemetry helper also needs 
+                // to load the telemetry service on the main thread.
+                // Do not remove this this, even though the return value goes unused.
+                var telemetryService = TelemetryHelper.TelemetryService;
+#endif
+            }
+        }
+
         /// <summary>
         /// Called by a debug engine to ensure that the main thread is initialized.
         /// </summary>
         public static void EnsureMainThreadInitialized()
         {
-            // This call is to initialize the global service provider while we are still on the main thread.
-            // Do not remove this this, even though the return value goes unused.
-            var globalProvider = Microsoft.VisualStudio.Shell.ServiceProvider.GlobalProvider;
-
-#if LAB
             try
             {
-                // Force the IVsTelemetryService to complete its lazy loading. There is a hang caused by trying to
-                // send telemetry while Visual Studio is launching the debugger if the telemetry helper also needs 
-                // to load the telemetry service on the main thread.
-                // Do not remove this this, even though the return value goes unused.
-                var telemetryService = TelemetryHelper.TelemetryService;
+                Impl.EnsureMainThreadInitialized();
             }
-            catch { }
-#endif
+            catch
+            {
+                // In glass, VS types will be missing. Ignore the exceptions.
+            }
+        }
+
+        internal static bool IsOnMainThread()
+        {
+            Debug.Assert(s_initialized, "EnsureMainThreadInitialized() not called first.");
+            return s_initialized && (s_mainThreadId == Thread.CurrentThread.ManagedThreadId);
         }
 
         /// <summary>

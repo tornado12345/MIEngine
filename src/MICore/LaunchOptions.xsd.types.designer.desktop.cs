@@ -343,44 +343,208 @@ namespace MICore.Xml.LaunchOptions {
     [System.Diagnostics.DebuggerStepThroughAttribute()]
     [System.ComponentModel.DesignerCategoryAttribute("code")]
     [System.Xml.Serialization.XmlTypeAttribute(Namespace="http://schemas.microsoft.com/vstudio/MDDDebuggerOptions/2014")]
-    public partial class EnvironmentEntry {
+    public partial class ServerOptions {
         
-        private string nameField;
+        private string preAttachCommandField;
         
-        private string valueField;
+        private string mIDebuggerPathField;
         
-        private string value1Field;
+        private string exePathField;
         
         /// <remarks/>
         [System.Xml.Serialization.XmlAttributeAttribute()]
-        public string Name {
+        public string PreAttachCommand {
             get {
-                return this.nameField;
+                return this.preAttachCommandField;
             }
             set {
-                this.nameField = value;
+                this.preAttachCommandField = value;
             }
         }
         
         /// <remarks/>
         [System.Xml.Serialization.XmlAttributeAttribute()]
-        public string Value {
+        public string MIDebuggerPath {
             get {
-                return this.valueField;
+                return this.mIDebuggerPathField;
             }
             set {
-                this.valueField = value;
+                this.mIDebuggerPathField = value;
             }
         }
         
         /// <remarks/>
-        [System.Xml.Serialization.XmlTextAttribute()]
-        public string Value1 {
+        [System.Xml.Serialization.XmlAttributeAttribute()]
+        public string ExePath {
             get {
-                return this.value1Field;
+                return this.exePathField;
             }
             set {
-                this.value1Field = value;
+                this.exePathField = value;
+            }
+        }
+    }
+    
+    /// <remarks/>
+    [System.CodeDom.Compiler.GeneratedCodeAttribute("xsd", "4.6.81.0")]
+    [System.SerializableAttribute()]
+    [System.Diagnostics.DebuggerStepThroughAttribute()]
+    [System.ComponentModel.DesignerCategoryAttribute("code")]
+    [System.Xml.Serialization.XmlTypeAttribute(Namespace="http://schemas.microsoft.com/vstudio/MDDDebuggerOptions/2014")]
+    public partial class AttachOptionsForConnection {
+        
+        private Command[] setupCommandsField;
+        
+        private SourceMapEntry[] sourceMapField;
+        
+        private ServerOptions serverOptionsField;
+        
+        private string additionalSOLibSearchPathField;
+        
+        private MIMode mIModeField;
+        
+        private string workingDirectoryField;
+        
+        private bool debugChildProcessesField;
+        
+        private bool debugChildProcessesFieldSpecified;
+        
+        private string visualizerFileField;
+        
+        private bool showDisplayStringField;
+        
+        private bool showDisplayStringFieldSpecified;
+        
+        private string connectionNameField;
+        
+        /// <remarks/>
+        [System.Xml.Serialization.XmlArrayItemAttribute(IsNullable=false)]
+        public Command[] SetupCommands {
+            get {
+                return this.setupCommandsField;
+            }
+            set {
+                this.setupCommandsField = value;
+            }
+        }
+        
+        /// <remarks/>
+        [System.Xml.Serialization.XmlArrayItemAttribute(IsNullable=false)]
+        public SourceMapEntry[] SourceMap {
+            get {
+                return this.sourceMapField;
+            }
+            set {
+                this.sourceMapField = value;
+            }
+        }
+        
+        /// <remarks/>
+        public ServerOptions ServerOptions {
+            get {
+                return this.serverOptionsField;
+            }
+            set {
+                this.serverOptionsField = value;
+            }
+        }
+        
+        /// <remarks/>
+        [System.Xml.Serialization.XmlAttributeAttribute()]
+        public string AdditionalSOLibSearchPath {
+            get {
+                return this.additionalSOLibSearchPathField;
+            }
+            set {
+                this.additionalSOLibSearchPathField = value;
+            }
+        }
+        
+        /// <remarks/>
+        [System.Xml.Serialization.XmlAttributeAttribute()]
+        public MIMode MIMode {
+            get {
+                return this.mIModeField;
+            }
+            set {
+                this.mIModeField = value;
+            }
+        }
+        
+        /// <remarks/>
+        [System.Xml.Serialization.XmlAttributeAttribute()]
+        public string WorkingDirectory {
+            get {
+                return this.workingDirectoryField;
+            }
+            set {
+                this.workingDirectoryField = value;
+            }
+        }
+        
+        /// <remarks/>
+        [System.Xml.Serialization.XmlAttributeAttribute()]
+        public bool DebugChildProcesses {
+            get {
+                return this.debugChildProcessesField;
+            }
+            set {
+                this.debugChildProcessesField = value;
+            }
+        }
+        
+        /// <remarks/>
+        [System.Xml.Serialization.XmlIgnoreAttribute()]
+        public bool DebugChildProcessesSpecified {
+            get {
+                return this.debugChildProcessesFieldSpecified;
+            }
+            set {
+                this.debugChildProcessesFieldSpecified = value;
+            }
+        }
+        
+        /// <remarks/>
+        [System.Xml.Serialization.XmlAttributeAttribute()]
+        public string VisualizerFile {
+            get {
+                return this.visualizerFileField;
+            }
+            set {
+                this.visualizerFileField = value;
+            }
+        }
+        
+        /// <remarks/>
+        [System.Xml.Serialization.XmlAttributeAttribute()]
+        public bool ShowDisplayString {
+            get {
+                return this.showDisplayStringField;
+            }
+            set {
+                this.showDisplayStringField = value;
+            }
+        }
+        
+        /// <remarks/>
+        [System.Xml.Serialization.XmlIgnoreAttribute()]
+        public bool ShowDisplayStringSpecified {
+            get {
+                return this.showDisplayStringFieldSpecified;
+            }
+            set {
+                this.showDisplayStringFieldSpecified = value;
+            }
+        }
+        
+        /// <remarks/>
+        [System.Xml.Serialization.XmlAttributeAttribute()]
+        public string ConnectionName {
+            get {
+                return this.connectionNameField;
+            }
+            set {
+                this.connectionNameField = value;
             }
         }
     }
@@ -452,6 +616,120 @@ namespace MICore.Xml.LaunchOptions {
     [System.Diagnostics.DebuggerStepThroughAttribute()]
     [System.ComponentModel.DesignerCategoryAttribute("code")]
     [System.Xml.Serialization.XmlTypeAttribute(Namespace="http://schemas.microsoft.com/vstudio/MDDDebuggerOptions/2014")]
+    public partial class SourceMapEntry {
+        
+        private string editorPathField;
+        
+        private string compileTimePathField;
+        
+        private bool useForBreakpointsField;
+        
+        private string valueField;
+        
+        public SourceMapEntry() {
+            this.useForBreakpointsField = false;
+        }
+        
+        /// <remarks/>
+        [System.Xml.Serialization.XmlAttributeAttribute()]
+        public string EditorPath {
+            get {
+                return this.editorPathField;
+            }
+            set {
+                this.editorPathField = value;
+            }
+        }
+        
+        /// <remarks/>
+        [System.Xml.Serialization.XmlAttributeAttribute()]
+        public string CompileTimePath {
+            get {
+                return this.compileTimePathField;
+            }
+            set {
+                this.compileTimePathField = value;
+            }
+        }
+        
+        /// <remarks/>
+        [System.Xml.Serialization.XmlAttributeAttribute()]
+        [System.ComponentModel.DefaultValueAttribute(false)]
+        public bool UseForBreakpoints {
+            get {
+                return this.useForBreakpointsField;
+            }
+            set {
+                this.useForBreakpointsField = value;
+            }
+        }
+        
+        /// <remarks/>
+        [System.Xml.Serialization.XmlTextAttribute()]
+        public string Value {
+            get {
+                return this.valueField;
+            }
+            set {
+                this.valueField = value;
+            }
+        }
+    }
+    
+    /// <remarks/>
+    [System.CodeDom.Compiler.GeneratedCodeAttribute("xsd", "4.6.81.0")]
+    [System.SerializableAttribute()]
+    [System.Diagnostics.DebuggerStepThroughAttribute()]
+    [System.ComponentModel.DesignerCategoryAttribute("code")]
+    [System.Xml.Serialization.XmlTypeAttribute(Namespace="http://schemas.microsoft.com/vstudio/MDDDebuggerOptions/2014")]
+    public partial class EnvironmentEntry {
+        
+        private string nameField;
+        
+        private string valueField;
+        
+        private string value1Field;
+        
+        /// <remarks/>
+        [System.Xml.Serialization.XmlAttributeAttribute()]
+        public string Name {
+            get {
+                return this.nameField;
+            }
+            set {
+                this.nameField = value;
+            }
+        }
+        
+        /// <remarks/>
+        [System.Xml.Serialization.XmlAttributeAttribute()]
+        public string Value {
+            get {
+                return this.valueField;
+            }
+            set {
+                this.valueField = value;
+            }
+        }
+        
+        /// <remarks/>
+        [System.Xml.Serialization.XmlTextAttribute()]
+        public string Value1 {
+            get {
+                return this.value1Field;
+            }
+            set {
+                this.value1Field = value;
+            }
+        }
+    }
+    
+    /// <remarks/>
+    [System.CodeDom.Compiler.GeneratedCodeAttribute("xsd", "4.6.81.0")]
+    [System.SerializableAttribute()]
+    [System.Diagnostics.DebuggerStepThroughAttribute()]
+    [System.ComponentModel.DesignerCategoryAttribute("code")]
+    [System.Xml.Serialization.XmlTypeAttribute(Namespace="http://schemas.microsoft.com/vstudio/MDDDebuggerOptions/2014")]
     public partial class BaseLaunchOptions {
         
         private Command[] setupCommandsField;
@@ -461,6 +739,8 @@ namespace MICore.Xml.LaunchOptions {
         private BaseLaunchOptionsLaunchCompleteCommand launchCompleteCommandField;
         
         private bool launchCompleteCommandFieldSpecified;
+        
+        private SourceMapEntry[] sourceMapField;
         
         private string exePathField;
         
@@ -542,6 +822,17 @@ namespace MICore.Xml.LaunchOptions {
             }
             set {
                 this.launchCompleteCommandFieldSpecified = value;
+            }
+        }
+        
+        /// <remarks/>
+        [System.Xml.Serialization.XmlArrayItemAttribute(IsNullable=false)]
+        public SourceMapEntry[] SourceMap {
+            get {
+                return this.sourceMapField;
+            }
+            set {
+                this.sourceMapField = value;
             }
         }
         
@@ -1334,6 +1625,42 @@ namespace MICore.Xml.LaunchOptions {
             }
             set {
                 this.startRemoteDebuggerCommandField = value;
+            }
+        }
+    }
+    
+    /// <remarks/>
+    [System.CodeDom.Compiler.GeneratedCodeAttribute("xsd", "4.6.81.0")]
+    [System.SerializableAttribute()]
+    [System.Diagnostics.DebuggerStepThroughAttribute()]
+    [System.ComponentModel.DesignerCategoryAttribute("code")]
+    [System.Xml.Serialization.XmlTypeAttribute(AnonymousType=true, Namespace="http://schemas.microsoft.com/vstudio/MDDDebuggerOptions/2014")]
+    [System.Xml.Serialization.XmlRootAttribute(Namespace="http://schemas.microsoft.com/vstudio/MDDDebuggerOptions/2014", IsNullable=false)]
+    public partial class SupplementalLaunchOptions {
+        
+        private SourceMapEntry[] sourceMapField;
+        
+        private AttachOptionsForConnection[] attachOptionsField;
+        
+        /// <remarks/>
+        [System.Xml.Serialization.XmlArrayItemAttribute(IsNullable=false)]
+        public SourceMapEntry[] SourceMap {
+            get {
+                return this.sourceMapField;
+            }
+            set {
+                this.sourceMapField = value;
+            }
+        }
+        
+        /// <remarks/>
+        [System.Xml.Serialization.XmlArrayItemAttribute(IsNullable=false)]
+        public AttachOptionsForConnection[] AttachOptions {
+            get {
+                return this.attachOptionsField;
+            }
+            set {
+                this.attachOptionsField = value;
             }
         }
     }

@@ -11,6 +11,8 @@ using System.Globalization;
 using System.Linq;
 using Microsoft.Win32.SafeHandles;
 using Microsoft.DebugEngineHost;
+using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 
 namespace MICore
 {
@@ -24,11 +26,14 @@ namespace MICore
 
     public class Debugger : ITransportCallback
     {
+        private const string Event_UnsupportedWindowsGdb = "VS/Diagnostics/Debugger/MIEngine/UnsupportedWindowsGdb";
+        private const string Property_GdbVersion = "VS.Diagnostics.Debugger.MIEngine.GdbVersion";
+
         public event EventHandler BreakModeEvent;
         public event EventHandler RunModeEvent;
         public event EventHandler ProcessExitEvent;
         public event EventHandler DebuggerExitEvent;
-        public event EventHandler<string> DebuggerAbortedEvent;
+        public event EventHandler<DebuggerAbortedEventArgs> DebuggerAbortedEvent;
         public event EventHandler<string> OutputStringEvent;
         public event EventHandler EvaluationEvent;
         public event EventHandler ErrorEvent;
@@ -49,6 +54,10 @@ namespace MICore
 
         public bool IsCygwin { get; protected set; }
 
+        public bool IsMinGW { get; protected set; }
+
+        public bool SendNewLineAfterCmd { get; protected set; }
+
         public virtual void FlushBreakStateData()
         {
         }
@@ -57,7 +66,7 @@ namespace MICore
         {
             get
             {
-                return _isClosed;
+                return _closeMessage != null;
             }
         }
 
@@ -79,7 +88,13 @@ namespace MICore
         private int _localDebuggerPid = -1;
 
         protected bool _connected;
-        protected bool _terminating;
+        private bool _terminating;
+        private bool _detaching;
+
+        public bool IsStopDebuggingInProgress
+        {
+            get { return _terminating || _detaching || this.ProcessState == MICore.ProcessState.Exited; }
+        }
 
         public class ResultEventArgs : EventArgs
         {
@@ -117,7 +132,12 @@ namespace MICore
         /// </summary>
         private string _lastCommandText;
         private uint _lastCommandId;
-        private bool _isClosed;
+
+        /// <summary>
+        /// Message used in any DebuggerDisposedExceptions once the debugger is closed. Setting
+        /// this to non-null indicates that the debugger is now closed. It is only set once.
+        /// </summary>
+        private string _closeMessage;
 
         /// <summary>
         /// [Optional] If a console command is being executed, list where we append the output
@@ -220,7 +240,7 @@ namespace MICore
                         _retryCount = 0;
                         _waitingToStop = true;
 
-                        // When using signals to stop the proces, do not kick off another break attempt. The debug break injection and
+                        // When using signals to stop the process, do not kick off another break attempt. The debug break injection and
                         // signal based models are reliable so no retries are needed. Cygwin can't currently async-break reliably, so
                         // use retries there.
                         if (!IsLocalGdb() && !this.IsCygwin)
@@ -273,18 +293,21 @@ namespace MICore
             this.ProcessState = ProcessState.Stopped;
             FlushBreakStateData();
 
-            if (!results.Contains("frame") && !_terminating)
+            if (!_terminating)
             {
-                if (ModuleLoadEvent != null)
+                if (!results.Contains("frame"))
                 {
-                    ModuleLoadEvent(this, new ResultEventArgs(results));
+                    if (ModuleLoadEvent != null)
+                    {
+                        ModuleLoadEvent(this, new ResultEventArgs(results));
+                    }
                 }
-            }
-            else if (BreakModeEvent != null)
-            {
-                BreakRequest request = _requestingRealAsyncBreak;
-                _requestingRealAsyncBreak = BreakRequest.None;
-                BreakModeEvent(this, new StoppingEventArgs(results, request));
+                else if (BreakModeEvent != null)
+                {
+                    BreakRequest request = _requestingRealAsyncBreak;
+                    _requestingRealAsyncBreak = BreakRequest.None;
+                    BreakModeEvent(this, new StoppingEventArgs(results, request));
+                }
             }
         }
 
@@ -377,13 +400,13 @@ namespace MICore
             bool processContinued = false;
             if (source != null)
             {
-                if (_isClosed)
+                if (this.IsClosed)
                 {
-                    source.SetException(new DebuggerDisposedException());
+                    source.TrySetException(new DebuggerDisposedException(_closeMessage));
                 }
                 else
                 {
-                    if (_requestingRealAsyncBreak == BreakRequest.Internal && fIsAsyncBreak)
+                    if (_requestingRealAsyncBreak == BreakRequest.Internal && fIsAsyncBreak && (!_terminating && !_detaching))
                     {
                         CmdContinueAsync();
                         processContinued = true;
@@ -391,11 +414,11 @@ namespace MICore
 
                     if (firstException != null)
                     {
-                        source.SetException(firstException);
+                        source.TrySetException(firstException);
                     }
                     else
                     {
-                        source.SetResult(null);
+                        source.TrySetResult(null);
                     }
                 }
             }
@@ -408,6 +431,10 @@ namespace MICore
             _lastCommandId = 1000;
             _transport = transport;
             FlushBreakStateData();
+
+            this.SendNewLineAfterCmd = (options is LocalLaunchOptions &&
+                PlatformUtilities.IsWindows() &&
+                this.MICommandFactory.Mode == MIMode.Gdb);
 
             _transport.Init(this, options, Logger, waitLoop);
         }
@@ -473,19 +500,32 @@ namespace MICore
         {
             if (Interlocked.CompareExchange(ref _exiting, 1, 0) == 0)
             {
-                Close();
+                string closeMessage;
+                if (this.ProcessState == ProcessState.Exited && !_terminating && !_detaching)
+                {
+                    closeMessage = MICoreResources.Error_TargetProcessExited;
+                }
+                else
+                {
+                    closeMessage = MICoreResources.Error_DebuggerClosed;
+                }
+
+                Close(closeMessage);
             }
         }
 
-        private void Close()
+        private void Close(string closeMessage)
         {
-            _isClosed = true;
+            Debug.Assert(closeMessage != null, "Invalid close message. Very bad.");
+            Debug.Assert(_closeMessage == null, "Why was Close called more than once? Should be impossible.");
+
+            _closeMessage = closeMessage;
             _transport.Close();
             lock (_waitingOperations)
             {
                 foreach (var value in _waitingOperations.Values)
                 {
-                    value.Abort();
+                    value.Abort(_closeMessage);
                 }
                 _waitingOperations.Clear();
             }
@@ -493,7 +533,7 @@ namespace MICore
             {
                 if (_internalBreakActionCompletionSource != null)
                 {
-                    _internalBreakActionCompletionSource.SetException(new DebuggerDisposedException());
+                    _internalBreakActionCompletionSource.SetException(new DebuggerDisposedException(_closeMessage));
                 }
                 _internalBreakActions.Clear();
             }
@@ -538,37 +578,27 @@ namespace MICore
             return CmdBreakInternal();
         }
 
-
         internal bool IsLocalGdb()
         {
-            if (this.MICommandFactory.Mode == MIMode.Gdb &&
+            return (this.MICommandFactory.Mode == MIMode.Gdb &&
                this._launchOptions is LocalLaunchOptions &&
-               String.IsNullOrEmpty(((LocalLaunchOptions)this._launchOptions).MIDebuggerServerAddress)
-               )
-            {
-                return true;
-            }
-            else
-            {
-                return false;
-            }
+               String.IsNullOrEmpty(((LocalLaunchOptions)this._launchOptions).MIDebuggerServerAddress));
+
         }
 
         private bool IsRemoteGdb()
         {
             return this.MICommandFactory.Mode == MIMode.Gdb &&
-               this._launchOptions is PipeLaunchOptions;
+               (this._launchOptions is PipeLaunchOptions || this._launchOptions is UnixShellPortLaunchOptions ||
+               (this._launchOptions is LocalLaunchOptions
+                    && !String.IsNullOrEmpty(((LocalLaunchOptions)this._launchOptions).MIDebuggerServerAddress)));
         }
 
         protected bool IsCoreDump
         {
             get
             {
-                LocalLaunchOptions localOptions = this._launchOptions as LocalLaunchOptions;
-                if (null == localOptions)
-                    return false;
-
-                return localOptions.IsCoreDump;
+                return this._launchOptions.IsCoreDump;
             }
         }
 
@@ -577,25 +607,93 @@ namespace MICore
             if (!_terminating)
             {
                 _terminating = true;
-                if (ProcessState == ProcessState.Running && this.MICommandFactory.Mode != MIMode.Clrdbg)
+                if (ProcessState == ProcessState.Running &&
+                    this.MICommandFactory.Mode != MIMode.Clrdbg)
                 {
-                    await CmdBreak(BreakRequest.Async);
+                    // MinGW and Cygwin on Windows don't support async break. Because of this,
+                    // the normal path of sending an internal async break so we can exit doesn't work.
+                    // Therefore, we will call TerminateProcess on the debuggee with the exit code of 0
+                    // to terminate debugging. 
+                    if (this.IsLocalGdb() &&
+                        (this.IsCygwin || this.IsMinGW) &&
+                        _debuggeePids.Count > 0)
+                    {
+                        if (TerminateAllPids())
+                        {
+                            // OperationThread's _runningOpCompleteEvent is doing WaitOne(). Calling MICommandFactory.Terminate() will Set() it, unblocking the UI. 
+                            await MICommandFactory.Terminate();
+                            return new Results(ResultClass.done);
+                        }
+                    }
+                    else
+                    {
+                        await AddInternalBreakAction(() => MICommandFactory.Terminate());
+                    }
                 }
-
-                await MICommandFactory.Terminate();
+                else
+                {
+                    await MICommandFactory.Terminate();
+                }
             }
 
             return new Results(ResultClass.done);
         }
 
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr OpenProcess(int dwDesiredAccess, [MarshalAs(UnmanagedType.Bool)] bool bInheritHandle, int dwProcessId);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool TerminateProcess(IntPtr hProcess, uint uExitCode);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool CloseHandle(IntPtr hHandle);
+
+        /// <summary>
+        /// Call PInvoke to terminate all debuggee PIDs. This is to solve MinGW/Cygwin issues in Windows and SHOULD NOT be used in other cases.
+        /// </summary>
+        /// <returns>True if any pids were terminated successfully</returns>
+        private bool TerminateAllPids()
+        {
+            var terminated = false;
+            foreach (var pid in _debuggeePids)
+            {
+                int debuggeePid = pid.Value;
+                IntPtr handle = IntPtr.Zero;
+                try
+                {
+                    // 0x1 = Terminate
+                    handle = OpenProcess(0x1, false, debuggeePid);
+                    if (handle != IntPtr.Zero && TerminateProcess(handle, 0))
+                    {
+                        terminated = true;
+                    }
+                }
+                finally
+                {
+                    if (handle != IntPtr.Zero)
+                    {
+                        bool close = CloseHandle(handle);
+                        Debug.Assert(close, "Why did CloseHandle fail?");
+                    }
+                }
+            }
+
+            return terminated;
+        }
+
+
         public async Task<Results> CmdDetach()
         {
-            if (ProcessState == ProcessState.Running)
+            _detaching = true;
+            if (ProcessState == ProcessState.Running && this.MICommandFactory.Mode != MIMode.Clrdbg)
             {
-                await CmdBreak(BreakRequest.Async);
+                await AddInternalBreakAction(() => CmdAsync("-target-detach", ResultClass.done));
             }
-            await CmdAsync("-target-detach", ResultClass.done);
-
+            else
+            {
+                await CmdAsync("-target-detach", ResultClass.done);
+            }
             return new Results(ResultClass.done);
         }
 
@@ -635,6 +733,14 @@ namespace MICore
             {
                 int pid = PidByInferior("i1");
                 if (pid != 0 && ((PipeTransport)_transport).Interrupt(pid))
+                {
+                    return Task.FromResult<Results>(new Results(ResultClass.done));
+                }
+            }
+            else if (IsRemoteGdb() && _transport is UnixShellPortTransport)
+            {
+                int pid = PidByInferior("i1");
+                if (pid != 0 && ((UnixShellPortTransport)_transport).Interrupt(pid))
                 {
                     return Task.FromResult<Results>(new Results(ResultClass.done));
                 }
@@ -689,7 +795,7 @@ namespace MICore
             {
                 if (this.ProcessState == MICore.ProcessState.Exited)
                 {
-                    throw new DebuggerDisposedException();
+                    throw new DebuggerDisposedException(GetTargetProcessExitedReason());
                 }
                 else
                 {
@@ -704,7 +810,7 @@ namespace MICore
                 {
                     if (this.ProcessState == MICore.ProcessState.Exited)
                     {
-                        throw new DebuggerDisposedException();
+                        throw new DebuggerDisposedException(GetTargetProcessExitedReason());
                     }
                     else
                     {
@@ -726,6 +832,16 @@ namespace MICore
                     _consoleCommandOutput = null;
                 }
             }
+        }
+
+        private string GetTargetProcessExitedReason()
+        {
+            if (_closeMessage != null)
+            {
+                return _closeMessage;
+            }
+
+            return MICoreResources.Error_TargetProcessExited;
         }
 
         public async Task<Results> CmdAsync(string command, ResultClass expectedResultClass)
@@ -759,9 +875,9 @@ namespace MICore
 
             lock (_waitingOperations)
             {
-                if (_isClosed)
+                if (this.IsClosed)
                 {
-                    throw new DebuggerDisposedException();
+                    throw new DebuggerDisposedException(_closeMessage);
                 }
 
                 id = ++_lastCommandId;
@@ -835,7 +951,25 @@ namespace MICore
                     {
                         if (_consoleDebuggerInitializeCompletionSource != null)
                         {
-                            MIDebuggerInitializeFailedException exception = new MIDebuggerInitializeFailedException(this.MICommandFactory.Name, _initialErrors.ToList().AsReadOnly(), _initializationLog.ToList().AsReadOnly());
+                            MIDebuggerInitializeFailedException exception;
+                            string version = GdbVersionFromLog();
+
+                            // We can't use IsMinGW or IsCygwin because we never connected to the debugger
+                            bool isMinGWOrCygwin = _launchOptions is LocalLaunchOptions &&
+                                    PlatformUtilities.IsWindows() &&
+                                    this.MICommandFactory.Mode == MIMode.Gdb;
+                            if (isMinGWOrCygwin && version != null && IsUnsupportedWindowsGdbVersion(version))
+                            {
+                                exception = new MIDebuggerInitializeFailedUnsupportedGdbException(
+                                    this.MICommandFactory.Name, _initialErrors.ToList().AsReadOnly(), _initializationLog.ToList().AsReadOnly(), version);
+                                SendUnsupportedWindowsGdbEvent(version);
+                            }
+                            else
+                            {
+                                exception = new MIDebuggerInitializeFailedException(
+                                    this.MICommandFactory.Name, _initialErrors.ToList().AsReadOnly(), _initializationLog.ToList().AsReadOnly());
+                            }
+
                             _initialErrors = null;
                             _initializationLog = null;
 
@@ -844,12 +978,20 @@ namespace MICore
                     }
                 }
 
-                Close();
-                if (this.ProcessState != ProcessState.Exited)
+
+                string message;
+                if (string.IsNullOrEmpty(exitCode))
+                    message = string.Format(CultureInfo.CurrentCulture, MICoreResources.Error_MIDebuggerExited_UnknownCode, this.MICommandFactory.Name);
+                else
+                    message = string.Format(CultureInfo.CurrentCulture, MICoreResources.Error_MIDebuggerExited_WithCode, this.MICommandFactory.Name, exitCode);
+
+                Close(message);
+
+                if (this.ProcessState != ProcessState.Exited && !_terminating && !_detaching)
                 {
                     if (DebuggerAbortedEvent != null)
                     {
-                        DebuggerAbortedEvent(this, exitCode);
+                        DebuggerAbortedEvent(this, new DebuggerAbortedEventArgs(message, exitCode));
                     }
                 }
                 else
@@ -860,6 +1002,33 @@ namespace MICore
                     }
                 }
             }
+        }
+
+        string GdbVersionFromLog()
+        {
+            foreach (string line in _initializationLog)
+            {
+                // Second set of parenthesis looks for a Cygwin-specific version number
+                // Cygwin example: GNU gdb (GDB) (Cygwin 7.11.1-2) 7.11.1
+                // MinGW example:  GNU gdb (GDB) 8.0.1
+                Match match = Regex.Match(line, "GNU gdb \\(GDB\\) (?:\\(Cygwin (\\d+[\\d\\.-]*)\\) )?(\\d+[\\d\\.-]*)");
+                if (match.Success)
+                {
+                    return match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value;
+                }
+            }
+
+            return null;
+        }
+
+        bool IsUnsupportedWindowsGdbVersion(string version)
+        {
+            return new string[] { "7.12", "7.12-1", "7.12-2", "7.12-3", "7.12.1", "7.12.1-1" }.Contains(version);
+        }
+
+        void SendUnsupportedWindowsGdbEvent(string version)
+        {
+            HostTelemetry.SendEvent(Event_UnsupportedWindowsGdb, new KeyValuePair<string, object>(Property_GdbVersion, version));
         }
 
         void ITransportCallback.AppendToInitializationLog(string line)
@@ -957,6 +1126,10 @@ namespace MICore
                     {
                         miError = results.FindString("msg");
                     }
+                    else
+                    {
+                        miError = String.Format(CultureInfo.CurrentCulture, MICoreResources.Error_UnexpectedResultClass, Enum.GetName(typeof(ResultClass), _expectedResultClass), Enum.GetName(typeof(ResultClass), results.ResultClass));
+                    }
 
                     _completionSource.SetException(new UnexpectedMIResultException(commandFactory.Name, this.Command, miError));
                 }
@@ -968,9 +1141,9 @@ namespace MICore
 
             public Task<Results> Task { get { return _completionSource.Task; } }
 
-            internal void Abort()
+            internal void Abort(string abortMessage)
             {
-                _completionSource.SetException(new DebuggerDisposedException(Command));
+                _completionSource.SetException(new DebuggerDisposedException(abortMessage, Command));
             }
         }
 
@@ -1160,7 +1333,7 @@ namespace MICore
             {
                 if (PlatformUtilities.IsWindows() &&
                     this.LaunchOptions is LocalLaunchOptions &&
-                    ((LocalLaunchOptions)this.LaunchOptions).ProcessId != 0 &&
+                    ((LocalLaunchOptions)this.LaunchOptions).ProcessId.HasValue &&
                     this.MICommandFactory.Mode == MIMode.Gdb &&
                     !this.IsCygwin
                     )
@@ -1399,6 +1572,14 @@ namespace MICore
         private void SendToTransport(string cmd)
         {
             _transport.Send(cmd);
+
+            // https://github.com/Microsoft/MIEngine/issues/616 :
+            // If it is local gdb (MinGW/Cygwin) on Windows, we need to send an extra line after commands 
+            // so that if it errors, the error will come through. 
+            if (this.SendNewLineAfterCmd)
+            {
+                _transport.Send(String.Empty);
+            }
         }
 
         public static ulong ParseAddr(string addr, bool throwOnError = false)
@@ -1479,5 +1660,17 @@ namespace MICore
                 throw new InvalidCoreDumpOperationException();
         }
     }
-}
 
+    public class DebuggerAbortedEventArgs
+    {
+        public readonly string Message;
+        public readonly string /*OPTIONAL*/ ExitCode;
+
+        public DebuggerAbortedEventArgs(string message, string exitCode)
+        {
+            Debug.Assert(message != null, "Invalid argument");
+            this.Message = message;
+            this.ExitCode = exitCode;
+        }
+    };
+}
