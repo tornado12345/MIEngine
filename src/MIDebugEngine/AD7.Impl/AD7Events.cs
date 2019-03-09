@@ -129,12 +129,12 @@ namespace Microsoft.MIDebugEngine
                     ResourceStrings.ModuleLoadedWithSymbols :
                     ResourceStrings.ModuleLoadedWithoutSymbols;
 
-                debugMessage = string.Format(CultureInfo.CurrentUICulture, ResourceStrings.ModuleLoadMessage, _module.DebuggedModule.Name, symbolLoadStatus);
+                debugMessage = string.Format(CultureInfo.CurrentCulture, ResourceStrings.ModuleLoadMessage, _module.DebuggedModule.Name, symbolLoadStatus);
                 fIsLoad = 1;
             }
             else
             {
-                debugMessage = string.Format(CultureInfo.CurrentUICulture, ResourceStrings.ModuleUnloadMessage, _module.DebuggedModule.Name);
+                debugMessage = string.Format(CultureInfo.CurrentCulture, ResourceStrings.ModuleUnloadMessage, _module.DebuggedModule.Name);
                 fIsLoad = 0;
             }
 
@@ -352,7 +352,7 @@ namespace Microsoft.MIDebugEngine
     }
 
     // This interface is sent by the debug engine (DE) to the session debug manager (SDM) when a program is loaded, but before any code is executed.
-    internal sealed class AD7LoadCompleteEvent : AD7StoppingEvent, IDebugLoadCompleteEvent2
+    internal sealed class AD7LoadCompleteEvent : AD7AsynchronousEvent, IDebugLoadCompleteEvent2
     {
         public const string IID = "B1844850-1349-45D4-9F12-495212F5EB0B";
 
@@ -562,6 +562,32 @@ namespace Microsoft.MIDebugEngine
     internal sealed class AD7StopCompleteEvent : AD7StoppingEvent, IDebugStopCompleteEvent2
     {
         public const string IID = "3DCA9DCD-FB09-4AF1-A926-45F293D48B2D";
+    }
+
+    internal sealed class AD7ProcessInfoUpdatedEvent : AD7AsynchronousEvent, IDebugProcessInfoUpdatedEvent158
+    {
+        public const string IID = "96C242FC-F584-4C3E-8FED-384D3D13EF36";
+        private readonly string _name;
+        private readonly uint _pid;
+
+        public AD7ProcessInfoUpdatedEvent(string name, uint pid)
+        {
+            _name = name;
+            _pid = pid;
+        }
+
+        public int GetUpdatedProcessInfo(out string pbstrName, out uint pdwSystemProcessId)
+        {
+            pbstrName = _name;
+            pdwSystemProcessId = _pid;
+            return Constants.S_OK;
+        }
+
+        internal static void Send(AD7Engine engine, string name, uint pid)
+        {
+            AD7ProcessInfoUpdatedEvent eventObject = new AD7ProcessInfoUpdatedEvent(name, pid);
+            engine.Callback.Send(eventObject, IID, engine, null);
+        }
     }
 
     internal sealed class AD7CustomDebugEvent : AD7AsynchronousEvent, IDebugCustomEvent110

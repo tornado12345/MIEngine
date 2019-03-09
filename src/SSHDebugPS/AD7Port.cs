@@ -119,7 +119,7 @@ namespace Microsoft.SSHDebugPS
             int code = -1;
             string output = null;
 
-            string waitPrompt = string.Format(CultureInfo.CurrentUICulture, StringResources.WaitingOp_ExecutingCommand, commandDescription);
+            string waitPrompt = string.Format(CultureInfo.CurrentCulture, StringResources.WaitingOp_ExecutingCommand, commandDescription);
             VS.VSOperationWaiter.Wait(waitPrompt, throwOnCancel: true, action: () =>
             {
                 code = GetConnection(ConnectionReason.Deferred).ExecuteCommand(commandText, timeout, out output);
@@ -224,8 +224,12 @@ namespace Microsoft.SSHDebugPS
 
         public void Clean()
         {
-            if (_connection != null)
-                _connection.Clean();
+            try
+            {
+                _connection?.Clean();
+            }
+            // Dev15 632648: Liblinux sometimes throws exceptions on shutdown - we are shutting down anyways, so ignore to not crash
+            catch (Exception) { }
         }
     }
 }

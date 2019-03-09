@@ -361,7 +361,7 @@ namespace MICore
                 }
                 else
                 {
-                    throw new InvalidLaunchOptionsException(String.Format(CultureInfo.CurrentUICulture, MICoreResources.Error_SourceFileMapFormat, item.Key));
+                    throw new InvalidLaunchOptionsException(String.Format(CultureInfo.CurrentCulture, MICoreResources.Error_SourceFileMapFormat, item.Key));
                 }
             }
             return new ReadOnlyCollection<SourceMapEntry>(sourceMaps);
@@ -391,6 +391,12 @@ namespace MICore
             }
 
             this.Environment = new ReadOnlyCollection<EnvironmentEntry>(environmentEntries);
+        }
+
+        public LocalLaunchOptions(string MIDebuggerPath, string MIDebuggerServerAddress, string MIDebuggerArgs, IList<EnvironmentEntry> environmentEntries): 
+            this(MIDebuggerPath, MIDebuggerServerAddress, environmentEntries)
+        {
+            this.MIDebuggerArgs = MIDebuggerArgs;
         }
 
         private void InitializeServerOptions(Json.LaunchOptions.LaunchOptions launchOptions)
@@ -453,6 +459,22 @@ namespace MICore
             return File.Exists(MIDebuggerPath);
         }
 
+        /// <summary>
+        /// Generates arguments for the MIDebuggerCommand. 
+        /// </summary>
+        /// <returns></returns>
+        public string GetMiDebuggerArgs()
+        {
+            string miDebuggerArgs = "--interpreter=mi";
+
+            if (!String.IsNullOrEmpty(this.MIDebuggerArgs))
+            {
+                miDebuggerArgs = String.Concat(miDebuggerArgs, " " + this.MIDebuggerArgs);
+            }
+
+            return miDebuggerArgs;
+        }
+
         static internal LocalLaunchOptions CreateFromJson(JObject parsedOptions)
         {
             Json.LaunchOptions.BaseOptions launchOptions = Json.LaunchOptions.LaunchOptionHelpers.GetLaunchOrAttachOptions(parsedOptions);
@@ -467,6 +489,7 @@ namespace MICore
 
             LocalLaunchOptions localLaunchOptions = new LocalLaunchOptions(RequireAttribute(miDebuggerPath, nameof(miDebuggerPath)),
                 launchOptions.MiDebuggerServerAddress,
+                launchOptions.MiDebuggerArgs,
                 GetEnvironmentEntries(
                     (launchOptions is Json.LaunchOptions.LaunchOptions) ?
                         ((Json.LaunchOptions.LaunchOptions)launchOptions).Environment
@@ -499,6 +522,7 @@ namespace MICore
             var options = new LocalLaunchOptions(
                 RequireAttribute(miDebuggerPath, "MIDebuggerPath"),
                 source.MIDebuggerServerAddress,
+                source.MIDebuggerArgs,
                 GetEnvironmentEntries(source.Environment));
             options.InitializeCommonOptions(source);
             options.InitializeServerOptions(source);
@@ -608,6 +632,11 @@ namespace MICore
         /// [Required] Path to the MI Debugger Executable.
         /// </summary>
         public string MIDebuggerPath { get; private set; }
+
+        /// <summary>
+        /// [Required] Arguments for the MI Debugger.
+        /// </summary>
+        public string MIDebuggerArgs { get; private set; }
 
         /// <summary>
         /// [Optional] Server address that MI Debugger server is listening to
@@ -721,7 +750,7 @@ namespace MICore
         /// <summary>
         /// Meta version of the clrdbg.
         /// </summary>
-        /// TODO: rajkumar42, placeholder. Needs to be fixed in the pkgdef as well.
+        /// TODO: placeholder. Needs to be fixed in the pkgdef as well.
         public string ClrDbgVersion { get; private set; } = "vs2015u2";
 
         /// <summary>
@@ -1062,6 +1091,44 @@ namespace MICore
                 VerifyCanModifyProperty("WaitDynamicLibLoad");
                 _waitDynamicLibLoad = value;
             }
+        }
+
+        private bool _siLoadAll = true;
+        /// <summary>
+        /// if true then load all symbols, else load no symbols
+        /// </summary>
+        public bool SymbolInfoLoadAll
+        {
+            get { return _siLoadAll;  }
+            set
+            {
+                VerifyCanModifyProperty("SymbolInfoLoadAll");
+                _siLoadAll = value;
+            }
+        }
+
+        private SymbolLocator.IncludeExcludeList _siExceptionList = new SymbolLocator.IncludeExcludeList();
+        /// <summary>
+        /// List file names. Wildcards ('*') are allowed. Modifies behaviour of SymbolInfoLoadAll.
+        /// If SymbolInfoLoadAll is true then all symbols except for members of this list are loaded. Otherwise only members of this list are loaded.
+        /// </summary>
+        public SymbolLocator.IncludeExcludeList SymbolInfoExceptionList
+        {
+            get { return _siExceptionList; }
+            set
+            {
+                VerifyCanModifyProperty("SymbolInfoExceptionList");
+                _siExceptionList = value;
+            }
+        }
+
+        /// <summary>
+        /// Check is it is Ok to let the debugger load symbols on solib events without intervention
+        /// </summary>
+        /// <returns></returns>
+        public bool CanAutoLoadSymbols()
+        {
+            return SymbolInfoLoadAll && SymbolInfoExceptionList.IsEmpty;
         }
 
         /// <summary>
@@ -1413,7 +1480,7 @@ namespace MICore
             if (isServerMode && unixPort is Microsoft.VisualStudio.Debugger.Interop.UnixPortSupplier.IDebugGdbServerAttach)
             {
                 string addr = ((Microsoft.VisualStudio.Debugger.Interop.UnixPortSupplier.IDebugGdbServerAttach)unixPort).GdbServerAttachProcess(processId, attachOptions.ServerOptions.PreAttachCommand);
-                options = new LocalLaunchOptions(attachOptions.ServerOptions.MIDebuggerPath, addr, null);
+                options = new LocalLaunchOptions(attachOptions.ServerOptions.MIDebuggerPath, addr, attachOptions.ServerOptions.MIDebuggerArgs, null);
                 options._miMode = miMode;
                 options.ExePath = attachOptions.ServerOptions.ExePath;
             }
@@ -1443,7 +1510,16 @@ namespace MICore
         internal static SupplementalLaunchOptions GetOptionsFromFile(Logger logger)
         {
             // load supplemental options from the solution root
-            string slnRoot = HostNatvisProject.FindSolutionRoot();
+            string slnRoot = null;
+            
+            // During glass testing, the Shell assembly is not available
+            try
+            {
+                slnRoot = HostNatvisProject.FindSolutionRoot();
+            }
+            catch (FileNotFoundException)
+            { }
+            
             if (!string.IsNullOrEmpty(slnRoot))
             {
                 string optFile = Path.Combine(slnRoot, "Microsoft.MIEngine.Options.xml");
@@ -1783,6 +1859,24 @@ namespace MICore
             // Ensure that CoreDumpPath and ProcessId are not specified at the same time
             if (!String.IsNullOrEmpty(source.CoreDumpPath) && source.ProcessIdSpecified)
                 throw new InvalidLaunchOptionsException(String.Format(CultureInfo.InvariantCulture, MICoreResources.Error_CannotSpecifyBoth, nameof(source.CoreDumpPath), nameof(source.ProcessId)));
+
+            if (source.SymbolLoadInfo != null)
+            {
+                SymbolInfoLoadAll = source.SymbolLoadInfo.LoadAllSpecified ? source.SymbolLoadInfo.LoadAll : true;
+
+                if (DebuggerMIMode == MIMode.Lldb && !string.IsNullOrWhiteSpace(source.SymbolLoadInfo.ExceptionList))
+                {
+                    throw new InvalidLaunchOptionsException(String.Format(CultureInfo.InvariantCulture, MICoreResources.Error_OptionNotSupported, nameof(source.SymbolLoadInfo.ExceptionList), nameof(MIMode.Lldb)));
+                }
+
+                SymbolInfoExceptionList.SetTo(source.SymbolLoadInfo.ExceptionList == null ? new string[0] : source.SymbolLoadInfo.ExceptionList.Split(';'));
+
+                // Ensure that symbol loading options are consistent
+                if (!WaitDynamicLibLoad && !SymbolInfoExceptionList.IsEmpty)
+                {
+                    throw new InvalidLaunchOptionsException(MICoreResources.Error_InvalidSymbolInfo);
+                }
+            }
         }
 
         public void InitializeLaunchOptions(Json.LaunchOptions.LaunchOptions launch)
@@ -1885,7 +1979,7 @@ namespace MICore
                 ConstructorInfo constructor = serializerType?.GetConstructor(new Type[0]);
                 if (constructor == null)
                 {
-                    throw new Exception(string.Format(CultureInfo.CurrentUICulture, MICoreResources.Error_UnableToLoadSerializer, type.Name));
+                    throw new Exception(string.Format(CultureInfo.CurrentCulture, MICoreResources.Error_UnableToLoadSerializer, type.Name));
                 }
 
                 object serializer = constructor.Invoke(new object[0]);

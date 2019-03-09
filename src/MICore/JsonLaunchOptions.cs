@@ -61,6 +61,12 @@ namespace MICore.Json.LaunchOptions
         public string MiDebuggerPath { get; set; }
 
         /// <summary>
+        /// Arguments for the mi debugger.
+        /// </summary>
+        [JsonProperty("miDebuggerArgs", DefaultValueHandling = DefaultValueHandling.Ignore)]
+        public string MiDebuggerArgs { get; set; }
+
+        /// <summary>
         /// Network address of the MI Debugger Server to connect to (example: localhost:1234).
         /// </summary>
         [JsonProperty("miDebuggerServerAddress", DefaultValueHandling = DefaultValueHandling.Ignore)]
@@ -105,6 +111,7 @@ namespace MICore.Json.LaunchOptions
             string additionalSOLibSearchPath = null,
             string MIMode = null,
             string miDebuggerPath = null,
+            string miDebuggerArgs = null,
             string miDebuggerServerAddress = null,
             Dictionary<string, object> sourceFileMap = null,
             PipeTransport pipeTransport = null)
@@ -117,6 +124,7 @@ namespace MICore.Json.LaunchOptions
             this.AdditionalSOLibSearchPath = additionalSOLibSearchPath;
             this.MIMode = MIMode;
             this.MiDebuggerPath = miDebuggerPath;
+            this.MiDebuggerArgs = miDebuggerArgs;
             this.MiDebuggerServerAddress = miDebuggerServerAddress;
             this.ProcessId = processId;
             this.SourceFileMap = sourceFileMap;
@@ -276,6 +284,7 @@ namespace MICore.Json.LaunchOptions
             string additionalSOLibSearchPath = null,
             string MIMode = null,
             string miDebuggerPath = null,
+            string miDebuggerArgs = null,
             string miDebuggerServerAddress = null,
             bool? stopAtEntry = null,
             string debugServerPath = null,
@@ -303,6 +312,7 @@ namespace MICore.Json.LaunchOptions
             this.AdditionalSOLibSearchPath = additionalSOLibSearchPath;
             this.MIMode = MIMode;
             this.MiDebuggerPath = miDebuggerPath;
+            this.MiDebuggerArgs = miDebuggerArgs;
             this.MiDebuggerServerAddress = miDebuggerServerAddress;
             this.StopAtEntry = stopAtEntry;
             this.DebugServerPath = debugServerPath;
@@ -343,10 +353,10 @@ namespace MICore.Json.LaunchOptions
                         return MICore.LaunchCompleteCommand.None;
                     }
 
-                    throw new InvalidLaunchOptionsException(String.Format(CultureInfo.CurrentUICulture, MICoreResources.Error_InvalidLaunchCompleteCommandValue, reader.Value));
+                    throw new InvalidLaunchOptionsException(String.Format(CultureInfo.CurrentCulture, MICoreResources.Error_InvalidLaunchCompleteCommandValue, reader.Value));
                 }
 
-                Debug.Fail(String.Format(CultureInfo.CurrentUICulture, "Unexpected objectType '{0}' passed for launchCompleteCommand serialization.", objectType.ToString()));
+                Debug.Fail(String.Format(CultureInfo.CurrentCulture, "Unexpected objectType '{0}' passed for launchCompleteCommand serialization.", objectType.ToString()));
                 return null;
             }
 
