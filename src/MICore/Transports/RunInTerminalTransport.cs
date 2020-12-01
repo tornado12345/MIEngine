@@ -1,4 +1,4 @@
-﻿// Copyright (c) Microsoft. All rights reserved.
+// Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 using System;
 using System.Collections.Generic;
@@ -137,6 +137,7 @@ namespace MICore
                 using (FileStream dbgCmdStream = new FileStream(dbgCmdScript, FileMode.CreateNew))
                 using (StreamWriter dbgCmdWriter = new StreamWriter(dbgCmdStream, encNoBom) { AutoFlush = true })
                 {
+                    dbgCmdWriter.WriteLine("#!/usr/bin/env sh");
                     dbgCmdWriter.Write(launchDebuggerCommand);
                     dbgCmdWriter.Flush();
                 }
@@ -153,7 +154,7 @@ namespace MICore
                 }
                 else
                 {
-                    cmdArgs.Add("sh");
+                    cmdArgs.Add("/bin/sh");
                     cmdArgs.Add(dbgCmdScript);
                 }
 
@@ -161,7 +162,8 @@ namespace MICore
                 _commandStream = new StreamWriter(stdInStream, encNoBom);
             }
 
-            RunInTerminalLauncher launcher = new RunInTerminalLauncher(windowtitle, localOptions.Environment);
+            // Do not pass the launchOptions Environment entries as those are used for the debuggee only.
+            RunInTerminalLauncher launcher = new RunInTerminalLauncher(windowtitle, new List<EnvironmentEntry>(0).AsReadOnly());
 
             launcher.Launch(
                      cmdArgs,
@@ -178,7 +180,7 @@ namespace MICore
             if (_waitForConnection != null)
             {
                 // Add a timeout for waiting for connection - 20 seconds
-                Task waitOrTimeout = Task.WhenAny(_waitForConnection, Task.Delay(5000));
+                Task waitOrTimeout = Task.WhenAny(_waitForConnection, Task.Delay(20000));
                 await waitOrTimeout;
                 if (waitOrTimeout.Status != TaskStatus.RanToCompletion)
                 {

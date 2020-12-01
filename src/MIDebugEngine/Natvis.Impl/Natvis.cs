@@ -19,6 +19,7 @@ using Microsoft.DebugEngineHost;
 using System.Reflection;
 
 using Logger = MICore.Logger;
+using Microsoft.VisualStudio.Debugger.Interop.DAP;
 
 namespace Microsoft.MIDebugEngine.Natvis
 {
@@ -53,7 +54,7 @@ namespace Microsoft.MIDebugEngine.Natvis
         public VariableInformation FindChildByName(string name) => Parent.FindChildByName(name);
         public string EvalDependentExpression(string expr) => Parent.EvalDependentExpression(expr);
         public void AsyncEval(IDebugEventCallback2 pExprCallback) => Parent.AsyncEval(pExprCallback);
-        public void SyncEval(enum_EVALFLAGS dwFlags) => Parent.SyncEval(dwFlags);
+        public void SyncEval(enum_EVALFLAGS dwFlags, DAPEvalFlags dwDAPFlags) => Parent.SyncEval(dwFlags, dwDAPFlags);
         public virtual string FullName() => Name;
         public void EnsureChildren() => Parent.EnsureChildren();
         public void AsyncError(IDebugEventCallback2 pExprCallback, IDebugProperty2 error)
@@ -136,7 +137,7 @@ namespace Microsoft.MIDebugEngine.Natvis
                 ScopedNames = new Dictionary<string, string>();
                 for (int i = 0; i < name.Args.Count; ++i)
                 {
-                    ScopedNames["$T" + (i + 1)] = name.Args[i].FullyQualifiedName;
+                    ScopedNames["$T" + (i + 1).ToString(CultureInfo.InvariantCulture)] = name.Args[i].FullyQualifiedName;
                 }
             }
         }
@@ -786,7 +787,7 @@ namespace Microsoft.MIDebugEngine.Natvis
                         IVariableInformation value = getValue(nodes.Peek().Content);
                         if (value != null)
                         {
-                            content.Add(new SimpleWrapper("[" + i + "]", _process.Engine, value));
+                            content.Add(new SimpleWrapper("[" + i.ToString(CultureInfo.InvariantCulture) + "]", _process.Engine, value));
                             i++;
                         }
                         break;
@@ -819,7 +820,7 @@ namespace Microsoft.MIDebugEngine.Natvis
                     IVariableInformation value = getValue(node);
                     if (value != null)
                     {
-                        content.Add(new SimpleWrapper("[" + i + "]", _process.Engine, value));
+                        content.Add(new SimpleWrapper("[" + i.ToString(CultureInfo.InvariantCulture) + "]", _process.Engine, value));
                         i++;
                     }
                 }
@@ -897,7 +898,7 @@ namespace Microsoft.MIDebugEngine.Natvis
                     {
                         for (int j = 0; j < name.Qualifiers[i].Args.Count; ++j)
                         {
-                            scopedNames["$T" + t] = name.Qualifiers[i].Args[j].FullyQualifiedName;
+                            scopedNames["$T" + t.ToString(CultureInfo.InvariantCulture)] = name.Qualifiers[i].Args[j].FullyQualifiedName;
                             t++;
                         }
                     }

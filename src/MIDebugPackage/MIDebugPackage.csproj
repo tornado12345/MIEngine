@@ -7,9 +7,8 @@
   <PropertyGroup>
     <!--Visual Studio will prompt to upgrade the project unless $(MinimumVisualStudioVersion)==$(VisualStudioVersion), to make
     VS happy, we will conditionally set MinimumVisualStudioVersion based on what version is opening the project -->
-    <MinimumVisualStudioVersion Condition="'$(VisualStudioVersion)' == '15.0'">15.0</MinimumVisualStudioVersion>
-    <MinimumVisualStudioVersion Condition="'$(VisualStudioVersion)' != '15.0'">14.0</MinimumVisualStudioVersion>
     <VisualStudioVersion Condition="'$(VisualStudioVersion)' == ''">14.0</VisualStudioVersion>
+    <MinimumVisualStudioVersion Condition="'$(VisualStudioVersion)' == ''">$(VisualStudioVersion)</MinimumVisualStudioVersion>
     <VSToolsPath Condition="'$(VSToolsPath)' == ''">$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)</VSToolsPath>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <TargetFrameworkProfile />
@@ -71,7 +70,6 @@
     <RunCodeAnalysis>true</RunCodeAnalysis>
   </PropertyGroup>
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
-  <Import Project="..\RequiredNetFX46FacadeAssemblies.targets" />
   <Import Project="SuppressFromVsix.targets" />
   <PropertyGroup>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
@@ -94,6 +92,11 @@
     <StartAction>Program</StartAction>
     <StartProgram Condition="'$(DevEnvDir)' != ''">$(DevEnvDir)devenv.exe</StartProgram>
     <StartArguments>/rootsuffix Exp</StartArguments>
+  </PropertyGroup>
+  <!-- This is to fix a build issue where VSSDK BuildTools are not able to be found. -->
+  <PropertyGroup Condition=" '$(VsSDKInstall)' != '' ">
+    <VsSDKIncludes Condition=" '$(VsSDKIncludes)' == '' ">$(VsSDKInstall)\VisualStudioIntegration\Common\inc</VsSDKIncludes>
+    <VsSDKToolsPath Condition=" '$(VsSDKToolsPath)' == '' ">$(VsSDKInstall)\VisualStudioIntegration\Tools\bin</VsSDKToolsPath>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Microsoft.CSharp" />
@@ -121,11 +124,17 @@
     <Reference Include="Microsoft.VisualStudio.TextManager.Interop">
       <Private>False</Private>
     </Reference>
-    <Reference Include="$(NugetPackagesDirectory)\Microsoft.VisualStudio.Shell.14.0.$(Microsoft_VisualStudio_Shell_14_0_Version)\lib\Microsoft.VisualStudio.Shell.14.0.dll">
+    <Reference Include="$(NugetPackagesDirectory)\Microsoft.VisualStudio.Shell.15.0.$(Microsoft_VisualStudio_Shell_15_0_Version)\lib\Microsoft.VisualStudio.Shell.15.0.dll">
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="$(NugetPackagesDirectory)\Microsoft.VisualStudio.Threading.$(Microsoft_VisualStudio_Threading_Version)\lib\net45\Microsoft.VisualStudio.Threading.dll">
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="$(NugetPackagesDirectory)\Microsoft.VisualStudio.Shell.Framework.$(Microsoft_VisualStudio_Shell_Framework_Version)\lib\net45\Microsoft.VisualStudio.Shell.Framework.dll">
       <Private>False</Private>
     </Reference>
     <!--NOTE: this reference is here to enable CreatePkgDef.exe to succeed when compiling in VS in a version != the shell targetting version -->
-    <Reference Include="$(NugetPackagesDirectory)\Microsoft.VisualStudio.Utilities.$(Microsoft_VisualStudio_Utilities)\lib\net45\Microsoft.VisualStudio.Utilities.dll">
+    <Reference Include="$(NugetPackagesDirectory)\Microsoft.VisualStudio.Utilities.$(Microsoft_VisualStudio_Utilities_Version)\lib\net45\Microsoft.VisualStudio.Utilities.dll">
       <Private>False</Private>
     </Reference>
     <Reference Include="Microsoft.VisualStudio.Shell.Immutable.10.0, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a">
@@ -179,7 +188,6 @@
     <None Include="source.extension.vsixmanifest">
       <SubType>Designer</SubType>
     </None>
-    <None Include="..\RequiredNetFX46FacadeAssemblies.targets" />
     <None Include="SuppressFromVsix.targets" />
   </ItemGroup>
   <ItemGroup>
@@ -192,10 +200,6 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="Resources\Package.ico" />
-  </ItemGroup>
-  <ItemGroup>
-    <VSIXSourceItem Include="@(RequiredNetFX46FacadeAssemblies)" />
-    <GlassDirCopy Include="@(RequiredNetFX46FacadeAssemblies)" />
   </ItemGroup>
   <ItemDefinitionGroup Condition="'$(LocalizationEnabled)'=='true'">
     <FilesToLocalize>
@@ -268,9 +272,8 @@
     <DropSignedFile Include="$(OutDir)\Microsoft.MICore.XmlSerializers.dll" />
     <DropSignedFile Include="$(OutDir)\Microsoft.MIDebugEngine.dll" />
     <DropUnsignedFile Include="$(OutDir)\Microsoft.MIDebugEngine.pdb" />
-
   </ItemGroup>
-  <ItemGroup Condition="'$(IsCoreCLR)' == 'true'">
+  <ItemGroup Condition="'$(IsXPlat)' == 'false'">
     <DropUnsignedFile Include="Install.cmd" />
     <DropUnsignedFile Include="$(OutDir)\Microsoft.MIDebugEngine.pkgdef" />
     <DropSignedFile Include="$(OutDir)\Microsoft.MIDebugPackage.dll" />
@@ -292,14 +295,13 @@
     <DropUnsignedFile Include="$(OutDir)\Microsoft.SSHDebugPS.pdb" />
     <DropUnsignedFile Include="$(OutDir)\Microsoft.SSHDebugPS.pkgdef" />
     <DropUnsignedFile Include="$(OutDir)\OpenFolderSchema.json" />
-    <DropUnsignedFile Include="@(RequiredNetFX46FacadeAssemblies)" />
   </ItemGroup>
-  <ItemGroup Condition="'$(IsCoreCLR)' == 'false'">
+  <ItemGroup Condition="'$(IsXPlat)' == 'true'">
     <DropUnsignedFile Include="$(OutDir)\osxlaunchhelper.scpt" />
     <DropUnsignedFile Include="$(OutDir)\Microsoft.MICore.dll.mdb" />
     <DropUnsignedFile Include="$(OutDir)\Microsoft.MIDebugEngine.dll.mdb" />
   </ItemGroup>
-  <ItemGroup Condition="'$(IsCoreCLR)' == 'true' AND '$(Lab)' == 'false'">
+  <ItemGroup Condition="'$(IsXPlat)' == 'false' AND '$(Lab)' == 'false'">
     <!-- Include file for local VS development builds. For Non-VS Builds, it will be dropped by MakePIAPortable project -->
     <DropUnsignedFile Include="$(OutDir)\Microsoft.VisualStudio.Debugger.Interop.15.0.dll" />
   </ItemGroup>
@@ -315,7 +317,7 @@
       <IncludeOutputGroupsInVSIX>BuiltProjectOutputGroup;BuiltProjectOutputGroupDependencies;GetCopyToOutputDirectoryItems;SatelliteDllsProjectOutputGroup;</IncludeOutputGroupsInVSIX>
     </ProjectReference>
   </ItemGroup>
-  <ItemGroup Condition="'$(IsCoreCLR)' == 'true'">
+  <ItemGroup Condition="'$(IsXPlat)' == 'false'">
     <ProjectReference Include="..\SSHDebugPS\SSHDebugPS.csproj">
       <Project>{15bcbef4-1c2b-412b-925b-34a049097e62}</Project>
       <Name>SSHDebugPS</Name>
@@ -340,6 +342,18 @@
       <Project>{78728205-db3e-4b7b-a7d2-5cbe38e9c607}</Project>
       <Name>JDbg</Name>
     </ProjectReference>
+    <ProjectReference Include="..\OpenDebugAD7\OpenDebugAD7.csproj">
+      <Project>{d582c0b6-032f-4686-b01d-eb55694059cb}</Project>
+      <Name>OpenDebugAD7</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <VsixSubPath>vscode</VsixSubPath>
+    </ProjectReference>
+    <ProjectReference Include="..\DebugEngineHost.VSCode\DebugEngineHost.VSCode.csproj">
+      <Project>{81de2423-fb5e-4069-b3c5-4c13ce76dc0a}</Project>
+      <Name>DebugEngineHost.VSCode</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <VsixSubPath>vscode</VsixSubPath>
+    </ProjectReference>
   </ItemGroup>
   <PropertyGroup>
     <UseCodebase>true</UseCodebase>
@@ -348,7 +362,7 @@
   <Import Project="..\..\build\miengine.targets" />
   <Import Project="$(VSToolsPath)\VSSDK\Microsoft.VsSDK.targets" Condition="'$(VSToolsPath)' != ''" />
   <Import Project="$(NuGetPackagesDirectory)\MicroBuild.Core.0.2.0\build\MicroBuild.Core.targets" Condition="Exists('$(NuGetPackagesDirectory)\MicroBuild.Core.0.2.0\build\MicroBuild.Core.targets')" />
-    <!--
+  <!--
   Target to drop the built files into a directory.
   For the official build, we need to drop files to the build share
   For normal builds, we drop files to <enlistment-root>\bin\debug\drop for easy sharing

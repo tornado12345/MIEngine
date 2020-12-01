@@ -99,6 +99,9 @@ namespace OpenDebugAD7
 
             [JsonProperty]
             public string CoreDumpPath { get; set; }
+
+            [JsonProperty]
+            public SymbolLoadInfo SymbolLoadInfo { get; set; }
         }
 
         [JsonObject]
@@ -161,6 +164,16 @@ namespace OpenDebugAD7
         }
 
         [JsonObject]
+        private class SymbolLoadInfo
+        {
+            [JsonProperty]
+            public bool? LoadAll { get; set; }
+
+            [JsonProperty]
+            public string ExceptionList { get; set; }
+        }
+
+        [JsonObject]
         private class JsonPipeLaunchOptions : JsonBaseLaunchOptions
         {
             [JsonProperty]
@@ -191,6 +204,9 @@ namespace OpenDebugAD7
 
             [JsonProperty]
             public Dictionary<string, string> PipeEnv { get; set; }
+
+            [JsonProperty("quoteArgs", DefaultValueHandling = DefaultValueHandling.Ignore)]
+            public bool? QuoteArgs { get; set; }
         }
 
         [JsonObject]
@@ -224,7 +240,15 @@ namespace OpenDebugAD7
 
         private static string FormatCommand(JsonCommand command)
         {
-            return String.Concat("        <Command IgnoreFailures='", command.IgnoreFailures ? "true" : "false", "' Description='", command.Description, "'>", command.Text, "</Command>\n");
+            return String.Concat(
+                "        <Command IgnoreFailures='", 
+                command.IgnoreFailures ? "true" : "false", 
+                "' Description='", 
+                XmlSingleQuotedAttributeEncode(command.Description), 
+                "'>", 
+                command.Text, 
+                "</Command>\n"
+                );
         }
 
         private static void AddBaseLaunchOptionsAttributes(
@@ -331,8 +355,12 @@ namespace OpenDebugAD7
                 // If one (or more) are not redirected, then add redirection
                 if (!stdInRedirected || !stdOutRedirected || !stdErrRedirected)
                 {
-                    List<string> argList = new List<string>(arguments.Length + 3);
-                    argList.AddRange(arguments);
+                    int argLength = arguments?.Length ?? 0;
+                    List<string> argList = new List<string>(argLength + 3);
+                    if (arguments != null)
+                    {
+                        argList.AddRange(arguments);
+                    }
 
                     if (!stdErrRedirected)
                     {
@@ -356,7 +384,13 @@ namespace OpenDebugAD7
             return arguments;
         }
 
-        private static string CreateArgumentList(IEnumerable<string> args)
+        /// <summary>
+        /// Converts a list of strings arguments to a string representation.
+        /// </summary>
+        /// <param name="args">The list of arguments to convert into a string.</param>
+        /// <param name="quoteArgs">Only used for PipeTransports. Setting this to false disables quote handling if the user requests it.</param>
+        /// <returns></returns>
+        private static string CreateArgumentList(IEnumerable<string> args, bool quoteArgs = true)
         {
             StringBuilder stringBuilder = new StringBuilder();
             if (args != null)
@@ -366,7 +400,7 @@ namespace OpenDebugAD7
                     if (stringBuilder.Length != 0)
                         stringBuilder.Append(' ');
 
-                    stringBuilder.Append(QuoteArgument(arg));
+                    stringBuilder.Append(quoteArgs ? QuoteArgument(arg) : arg);
                 }
             }
             return stringBuilder.ToString();
@@ -428,6 +462,7 @@ namespace OpenDebugAD7
         /// <returns>Path to lldb-mi or null if it doesn't exist</returns>
         private static string GetLLDBMIPath()
         {
+            string exePath = null;
             string directory = EngineConfiguration.GetAdapterDirectory();
             DirectoryInfo dir = new DirectoryInfo(directory);
 
@@ -436,13 +471,21 @@ namespace OpenDebugAD7
 
             if (!String.IsNullOrEmpty(debugAdapterPath))
             {
-                string exePath = Path.Combine(debugAdapterPath, "lldb", "bin", "lldb-mi");
-                if (File.Exists(exePath))
+                // Path for lldb-mi 10.x and if it exists use it.
+                exePath = Path.Combine(debugAdapterPath, "lldb-mi", "bin", "lldb-mi");
+                if (!File.Exists(exePath))
                 {
-                    return exePath;
+                    // Fall back to using path for lldb-mi 3.8
+                    exePath = Path.Combine(debugAdapterPath, "lldb", "bin", "lldb-mi");
+                    if (!File.Exists(exePath))
+                    {
+                        // Neither exist
+                        return null;
+                    }
                 }
             }
-            return null;
+
+            return exePath;
         }
 
         internal static string CreateLaunchOptions(
@@ -484,7 +527,17 @@ namespace OpenDebugAD7
                     string miDebuggerArgs = XmlSingleQuotedAttributeEncode(jsonLaunchOptions.MIDebuggerArgs);
                     xmlLaunchOptions.Append(String.Concat("  MIDebuggerArgs='", miDebuggerArgs, "'\n"));
                 }
-                xmlLaunchOptions.Append(String.Concat("  WaitDynamicLibLoad='false'\n"));
+
+                // If we get SymbolLoadInfo and an ExceptionList or LoadAll is set. We will need to have WaitDynamicLibLoad.
+                if (jsonLaunchOptions.SymbolLoadInfo != null && 
+                    (!String.IsNullOrWhiteSpace(jsonLaunchOptions.SymbolLoadInfo.ExceptionList) || jsonLaunchOptions.SymbolLoadInfo.LoadAll.HasValue))
+                {
+                    xmlLaunchOptions.Append(String.Concat("  WaitDynamicLibLoad='true'\n"));
+                }
+                else
+                {
+                    xmlLaunchOptions.Append(String.Concat("  WaitDynamicLibLoad='false'\n"));
+                }
 
                 if (jsonLaunchOptions.MIDebuggerServerAddress != null)
                 {
@@ -569,6 +622,22 @@ namespace OpenDebugAD7
                     xmlLaunchOptions.Append("    </Environment>\n");
                 }
 
+                if (jsonLaunchOptions.SymbolLoadInfo != null)
+                {
+                    xmlLaunchOptions.Append("    <SymbolLoadInfo ");
+                    if (jsonLaunchOptions.SymbolLoadInfo.LoadAll.HasValue)
+                    {
+                        xmlLaunchOptions.Append("LoadAll = '" + jsonLaunchOptions.SymbolLoadInfo.LoadAll.Value.ToString().ToLowerInvariant() + "' ");
+                    }
+
+                    if (!String.IsNullOrWhiteSpace(jsonLaunchOptions.SymbolLoadInfo.ExceptionList))
+                    {
+                        xmlLaunchOptions.Append("ExceptionList='" + XmlSingleQuotedAttributeEncode(jsonLaunchOptions.SymbolLoadInfo.ExceptionList) + "' ");
+                    }
+
+                    xmlLaunchOptions.Append("/>\n");
+                }
+
                 xmlLaunchOptions.Append("</LocalLaunchOptions>");
 
                 visualizerFileUsed = jsonLaunchOptions.VisualizerFile != null;
@@ -590,6 +659,8 @@ namespace OpenDebugAD7
                 string pipeProgram = jsonLaunchOptions.PipeTransport.PipeProgram;
                 string[] pipeArgs = jsonLaunchOptions.PipeTransport.PipeArgs;
                 string processId = jsonLaunchOptions.ProcessId;
+                bool quoteArgs = jsonLaunchOptions.PipeTransport.QuoteArgs.GetValueOrDefault(true);
+
                 Dictionary<string, string> pipeEnv = jsonLaunchOptions.PipeTransport.PipeEnv;
 
                 JsonPipeTransportOptions platformSpecificTransportOptions = null;
@@ -612,6 +683,7 @@ namespace OpenDebugAD7
                     pipeArgs = platformSpecificTransportOptions.PipeArgs ?? pipeArgs;
                     pipeCwd = platformSpecificTransportOptions.PipeCwd ?? pipeCwd;
                     pipeEnv = platformSpecificTransportOptions.PipeEnv ?? pipeEnv;
+                    quoteArgs = platformSpecificTransportOptions.QuoteArgs ?? quoteArgs;
                 }
 
                 if (string.IsNullOrWhiteSpace(pipeProgram))
@@ -623,7 +695,8 @@ namespace OpenDebugAD7
 
                 if (pipeArgs != null)
                 {
-                    string pipeCommandArgs = CreateArgumentList(pipeArgs);
+                    // This code should be kept similar to MICode.LaunchOptions.cs EnsurePipeArguments()
+                    string pipeCommandArgs = CreateArgumentList(pipeArgs, quoteArgs);
                     IEnumerable<string> allPipeArguments = pipeArgs;
                     string debuggerPath = jsonLaunchOptions.PipeTransport.DebuggerPath ?? "";
                     if (!string.IsNullOrEmpty(debuggerPath))
@@ -639,7 +712,7 @@ namespace OpenDebugAD7
                         }
                     }
 
-                    string allArguments = CreateArgumentList(allPipeArguments);
+                    string allArguments = CreateArgumentList(allPipeArguments, quoteArgs);
                     xmlLaunchOptions.Append(String.Concat("  PipeArguments='", MILaunchOptions.XmlSingleQuotedAttributeEncode(allArguments), "'\n"));
 
                     // debuggerPath has to be specified. if it isn't then the debugger is specified in PipeArg which means we can't use the same arguments for pipeCommandArgs
@@ -711,7 +784,7 @@ namespace OpenDebugAD7
 
         internal static string XmlSingleQuotedAttributeEncode(string value)
         {
-            if (value.IndexOfAny(s_specialXmlSingleQuotedAttributeChars) < 0)
+            if (string.IsNullOrWhiteSpace(value) || value.IndexOfAny(s_specialXmlSingleQuotedAttributeChars) < 0)
             {
                 return value;
             }

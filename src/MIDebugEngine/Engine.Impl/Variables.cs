@@ -12,6 +12,7 @@ using MICore;
 using System.Threading.Tasks;
 using System.Text.RegularExpressions;
 using System.Globalization;
+using Microsoft.VisualStudio.Debugger.Interop.DAP;
 
 namespace Microsoft.MIDebugEngine
 {
@@ -32,7 +33,7 @@ namespace Microsoft.MIDebugEngine
         void EnsureChildren();
         void AsyncEval(IDebugEventCallback2 pExprCallback);
         void AsyncError(IDebugEventCallback2 pExprCallback, IDebugProperty2 error);
-        void SyncEval(enum_EVALFLAGS dwFlags = 0);
+        void SyncEval(enum_EVALFLAGS dwFlags = 0, DAPEvalFlags dwDAPFlags = 0);
         ThreadContext ThreadContext { get; }
         VariableInformation FindChildByName(string name);
         string EvalDependentExpression(string expr);
@@ -342,23 +343,70 @@ namespace Microsoft.MIDebugEngine
 
         private string StripFormatSpecifier(string exp, out string formatSpecifier)
         {
-            formatSpecifier = null;
+            formatSpecifier = null; // will be used with -var-set-format
             int lastComma = exp.LastIndexOf(',');
-            if (lastComma > 0)
+            if (lastComma <= 0)
+                return exp;
+
+            // https://docs.microsoft.com/en-us/visualstudio/debugger/format-specifiers-in-cpp
+            string expFS = exp.Substring(lastComma + 1);
+            string trimmed = expFS.Trim();
+            switch (trimmed)
             {
-                string expFS = exp.Substring(lastComma + 1);
-                string trimmed = expFS.Trim();
-                if (trimmed == "x" || trimmed == "X" || trimmed == "h" || trimmed == "H")
-                {
-                    formatSpecifier = "hexadecimal";
-                    return exp.Substring(0, lastComma);
-                }
-                else if (trimmed == "o")
-                {
+                case "x":
+                case "X":
+                case "h":
+                case "H":
+                case "xb":
+                case "Xb":
+                case "hb":
+                case "Hb":
+                    // could be improved upon via post-processing with ToUpperInvariant/SubString
+                    formatSpecifier = "zero-hexadecimal";
+                    goto case "";
+                case "o":
                     formatSpecifier = "octal";
+                    goto case "";
+                case "d":
+                    formatSpecifier = "decimal";
+                    goto case "";
+                case "b":
+                case "bb":
+                    formatSpecifier = "binary";
+                    goto case "";
+                case "e":
+                case "g":
+                    goto case "";
+                case "s":
+                case "sb":
+                case "s8":
+                case "s8b":
+                    return "(const char*)(" + exp.Substring(0, lastComma) + ")";
+                case "su":
+                case "sub":
+                    return "(const char16_t*)(" + exp.Substring(0, lastComma) + ")";
+                case "c":
+                    return "(char)(" + exp.Substring(0, lastComma) + ")";
+                // just remove and ignore these
+                case "en":
+                case "na":
+                case "nd":
+                case "nr":
+                case "!":
+                case "":
                     return exp.Substring(0, lastComma);
-                }
             }
+
+            // array with static size
+            // TODO: could return '(T(*)[n])(exp)' but requires T
+            var m = Regex.Match(trimmed, @"^\[?(\d+)\]?$");
+            if (m.Success)
+                return exp.Substring(0, lastComma);
+
+            // array with dynamic size
+            if (Regex.Match(trimmed, @"^\[([a-zA-Z_][a-zA-Z_\d]*)\]$").Success)
+                return exp.Substring(0, lastComma);
+
             return exp;
         }
 
@@ -399,11 +447,11 @@ namespace Microsoft.MIDebugEngine
             AsyncErrorImpl(pExprCallback != null ? new EngineCallback(_engine, pExprCallback) : _engine.Callback, this, error);
         }
 
-        public void SyncEval(enum_EVALFLAGS dwFlags = 0)
+        public void SyncEval(enum_EVALFLAGS dwFlags = 0, DAPEvalFlags dwDAPFlags = 0)
         {
             Task eval = Task.Run(async () =>
             {
-                await Eval(dwFlags);
+                await Eval(dwFlags, dwDAPFlags);
             });
             eval.Wait();
         }
@@ -421,20 +469,41 @@ namespace Microsoft.MIDebugEngine
             return val;
         }
 
-        internal async Task Eval(enum_EVALFLAGS dwFlags = 0)
+        /// <summary>
+        /// This allows console commands to be sent through the eval channel via a '-exec ' or '`' preface
+        /// </summary>
+        /// <param name="command">raw command</param>
+        /// <param name="strippedCommand">command stripped of the preface ('-exec ' or '`')</param>
+        /// <returns>true if it is a console command</returns>
+        private bool IsConsoleExecCmd(string command, out string strippedCommand)
+        {
+            strippedCommand = string.Empty;
+            string execCommandString = "-exec ";
+            if (command.StartsWith(execCommandString, StringComparison.Ordinal))
+            {
+                strippedCommand = command.Substring(execCommandString.Length);
+                return true;
+            }
+            else if (command[0] == '`')
+            {
+                strippedCommand = command.Substring(1).TrimStart(); // remove spaces if any
+                return true;
+            }
+            return false;
+        }
+
+        internal async Task Eval(enum_EVALFLAGS dwFlags = 0, DAPEvalFlags dwDAPFlags = 0)
         {
             this.VerifyNotDisposed();
 
             await _engine.UpdateRadixAsync(_engine.CurrentRadix());    // ensure the radix value is up-to-date
 
-            string execCommandString = "-exec ";
-
             try
             {
-                if (_strippedName.StartsWith(execCommandString))
+                string consoleCommand;
+                if (IsConsoleExecCmd(_strippedName, out consoleCommand))
                 {
                     // special case for executing raw mi commands. 
-                    string consoleCommand = _strippedName.Substring(execCommandString.Length);
                     string consoleResults = null;
 
                     consoleResults = await MIDebugCommandDispatcher.ExecuteCommand(consoleCommand, _debuggedProcess, ignoreFailures: true);
@@ -448,6 +517,22 @@ namespace Microsoft.MIDebugEngine
                 }
                 else
                 {
+                    bool canRunClipboardContextCommands = this._debuggedProcess.MICommandFactory.Mode == MIMode.Gdb && dwDAPFlags.HasFlag(DAPEvalFlags.CLIPBOARD_CONTEXT);
+                    int numElements = 200;
+
+                    if (canRunClipboardContextCommands)
+                    {
+                        string showPrintElementsResult = await MIDebugCommandDispatcher.ExecuteCommand("show print elements", _debuggedProcess, ignoreFailures: true);
+                        // Possible values for 'numElementsStr'
+                        // "Limit on string chars or array elements to print is <number>."
+                        // "Limit on string chars or array elements to print is unlimited."
+                        string numElementsStr = Regex.Match(showPrintElementsResult, @"\d+").Value;
+                        if (!string.IsNullOrEmpty(numElementsStr) && int.TryParse(numElementsStr, out numElements) && numElements != 0)
+                        {
+                            await MIDebugCommandDispatcher.ExecuteCommand("set print elements 0", _debuggedProcess, ignoreFailures: true);
+                        }
+                    }
+
                     int threadId = Client.GetDebuggedThread().Id;
                     uint frameLevel = _ctx.Level;
                     Results results = await _engine.DebuggedProcess.MICommandFactory.VarCreate(_strippedName, threadId, frameLevel, dwFlags, ResultClass.None);
@@ -501,7 +586,7 @@ namespace Microsoft.MIDebugEngine
                                 }
                                 else
                                 {
-                                    Debug.Fail("Weird msg from -var-evaluate-expression");
+                                    Debug.Fail("Unexpected format of msg from -var-evaluate-expression");
                                 }
                             }
                         }
@@ -512,7 +597,12 @@ namespace Microsoft.MIDebugEngine
                     }
                     else
                     {
-                        Debug.Fail("Weird msg from -var-create");
+                        Debug.Fail("Unexpected format of msg from -var-create");
+                    }
+
+                    if (canRunClipboardContextCommands && numElements != 0)
+                    {
+                        await MIDebugCommandDispatcher.ExecuteCommand(string.Format(CultureInfo.InvariantCulture, "set print elements {0}", numElements), _debuggedProcess, ignoreFailures: true);
                     }
                 }
             }
@@ -549,7 +639,7 @@ namespace Microsoft.MIDebugEngine
             }
             else
             {
-                Debug.Fail("Weird msg from expression formatting");
+                Debug.Fail("Unexpected format of msg from expression formatting");
             }
         }
 
@@ -569,6 +659,7 @@ namespace Microsoft.MIDebugEngine
             // but this seems like one place where we might want to to, so I am allowing it
             return Task.Run((Func<Task>)InternalFetchChildren);
         }
+
         private async Task InternalFetchChildren()
         {
             this.VerifyNotDisposed();

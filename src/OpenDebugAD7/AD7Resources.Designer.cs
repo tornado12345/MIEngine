@@ -10,7 +10,6 @@
 
 namespace OpenDebugAD7 {
     using System;
-    using System.Reflection;
     
     
     /// <summary>
@@ -20,7 +19,7 @@ namespace OpenDebugAD7 {
     // class via a tool like ResGen or Visual Studio.
     // To add or remove a member, edit your .ResX file then rerun ResGen
     // with the /str option, or rebuild your VS project.
-    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "4.0.0.0")]
+    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "16.0.0.0")]
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
     internal class AD7Resources {
@@ -40,7 +39,7 @@ namespace OpenDebugAD7 {
         internal static global::System.Resources.ResourceManager ResourceManager {
             get {
                 if (object.ReferenceEquals(resourceMan, null)) {
-                    global::System.Resources.ResourceManager temp = new global::System.Resources.ResourceManager("OpenDebugAD7.AD7Resources", typeof(AD7Resources).GetTypeInfo().Assembly);
+                    global::System.Resources.ResourceManager temp = new global::System.Resources.ResourceManager("OpenDebugAD7.AD7Resources", typeof(AD7Resources).Assembly);
                     resourceMan = temp;
                 }
                 return resourceMan;
@@ -109,6 +108,15 @@ namespace OpenDebugAD7 {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Exception occurred: &apos;{0}&apos;.
+        /// </summary>
+        internal static string Error_ExceptionOccured {
+            get {
+                return ResourceManager.GetString("Error_ExceptionOccured", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Breakpoint Error: function &quot;{0}&quot;, {1}.
         /// </summary>
         internal static string Error_FunctionBreakpoint {
@@ -123,6 +131,69 @@ namespace OpenDebugAD7 {
         internal static string Error_Internal_Launch {
             get {
                 return ResourceManager.GetString("Error_Internal_Launch", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Unable to interpolate logMessage because frames could not be retrieved..
+        /// </summary>
+        internal static string Error_InterpolateMissingFrames {
+            get {
+                return ResourceManager.GetString("Error_InterpolateMissingFrames", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Unable to interpolate logMessage because current thread is missing..
+        /// </summary>
+        internal static string Error_InterpolateMissingThread {
+            get {
+                return ResourceManager.GetString("Error_InterpolateMissingThread", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Unable to interpolate logMessage because there is no top frame..
+        /// </summary>
+        internal static string Error_InterpolateMissingTopFrame {
+            get {
+                return ResourceManager.GetString("Error_InterpolateMissingTopFrame", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Failed to evaluate expression..
+        /// </summary>
+        internal static string Error_InterpolateVariableEvaluateFailed {
+            get {
+                return ResourceManager.GetString("Error_InterpolateVariableEvaluateFailed", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Unable to get context from frame..
+        /// </summary>
+        internal static string Error_InterpolateVariableMissingContext {
+            get {
+                return ResourceManager.GetString("Error_InterpolateVariableMissingContext", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to No expression object found..
+        /// </summary>
+        internal static string Error_InterpolateVariableMissingExpressionObject {
+            get {
+                return ResourceManager.GetString("Error_InterpolateVariableMissingExpressionObject", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Failed to get property information..
+        /// </summary>
+        internal static string Error_InterpolateVariableMissingProperties {
+            get {
+                return ResourceManager.GetString("Error_InterpolateVariableMissingProperties", resourceCulture);
             }
         }
         
@@ -201,6 +272,15 @@ namespace OpenDebugAD7 {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Unable to read memory. {0}.
+        /// </summary>
+        internal static string Error_Scenario_ReadMemory {
+            get {
+                return ResourceManager.GetString("Error_Scenario_ReadMemory", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Unable to step in. {0}.
         /// </summary>
         internal static string Error_Scenario_Step_In {
@@ -269,6 +349,15 @@ namespace OpenDebugAD7 {
         internal static string Error_TargetNotStopped {
             get {
                 return ResourceManager.GetString("Error_TargetNotStopped", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Unable to parse &apos;logMessage&apos;..
+        /// </summary>
+        internal static string Error_UnableToParseLogMessage {
+            get {
+                return ResourceManager.GetString("Error_UnableToParseLogMessage", resourceCulture);
             }
         }
         

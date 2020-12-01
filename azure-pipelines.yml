@@ -1,0 +1,68 @@
+name: $(Date:yyyMMdd).$(Rev:r)
+pr:
+- 'master'
+jobs:
+- job: Debug
+  pool: 'Hosted Windows 2019 with VS2019'
+  steps:
+  - task: MSBuild@1
+    inputs:
+      solution: 'BuildAndTest.proj'
+      configuration: 'Debug'
+  - task: PublishTestResults@2
+    inputs:
+      testResultsFormat: 'xUnit'
+      testResultsFiles: 'bin\Debug\TestResults.xml'
+      searchFolder: '$(System.DefaultWorkingDirectory)'
+      testRunTitle: '$(Build.DefinitionName)_$(Build.BuildNumber)_Debug'
+
+- job: Release
+  pool: 'Hosted Windows 2019 with VS2019'
+  steps:
+  - task: MSBuild@1
+    inputs:
+      solution: 'BuildAndTest.proj'
+      configuration: 'Release'
+  - task: PublishTestResults@2
+    inputs:
+      testResultsFormat: 'xUnit'
+      testResultsFiles: 'bin\Release\TestResults.xml'
+      searchFolder: '$(System.DefaultWorkingDirectory)'
+      testRunTitle: '$(Build.DefinitionName)_$(Build.BuildNumber)_Release'
+
+- job: DesktopDebug
+  pool: 'Hosted Windows 2019 with VS2019'
+  steps:
+  - task: MSBuild@1
+    inputs:
+      solution: 'BuildAndTest.proj'
+      configuration: 'Desktop.Debug'
+
+
+- job: DesktopRelease
+  pool: 'Hosted Windows 2019 with VS2019'
+  steps:
+  - task: MSBuild@1
+    inputs:
+      solution: 'BuildAndTest.proj'
+      configuration: 'Desktop.Release'
+
+- job: LabRelease
+  pool: 'Hosted Windows 2019 with VS2019'
+  variables:
+    TEST_LAB_BUILD: 'true'
+  steps:
+  - task: MSBuild@1
+    inputs:
+      solution: 'BuildAndTest.proj'
+      configuration: 'Lab.Release'
+
+- job: LabDebug
+  pool: 'Hosted Windows 2019 with VS2019'
+  variables:
+    TEST_LAB_BUILD: 'true'
+  steps:
+  - task: MSBuild@1
+    inputs:
+      solution: 'BuildAndTest.proj'
+      configuration: 'Lab.Debug'
